@@ -16,6 +16,13 @@ const decorSelect = document.getElementById('decor-select');
 const snowToggle = document.getElementById('snow-toggle');
 const photoModeBtn = document.getElementById('photo-mode');
 const toastEl = document.getElementById('toast');
+const radialMenu = document.getElementById('decor-radial');
+const radialButtons = radialMenu ? Array.from(radialMenu.querySelectorAll('button[data-type]')) : [];
+const storyIntroPanel = document.getElementById('story-intro');
+const introContinueBtn = document.getElementById('intro-continue');
+const customizeToggleBtn = document.getElementById('customize-toggle');
+const customizeModal = document.getElementById('customize-modal');
+const customizeCloseBtn = document.getElementById('customize-close');
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -28,8 +35,8 @@ renderer.shadowMap.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x050b17);
-scene.fog = new THREE.FogExp2(0x040915, 0.02);
+scene.background = new THREE.Color(0x0b1d2e);
+scene.fog = new THREE.FogExp2(0x0a1624, 0.018);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.set(0, 6, 14);
@@ -57,9 +64,32 @@ const EDGE_PAN_SPEED = 0.6;
 const EDGE_TILT_SPEED = 0.4;
 
 const clock = new THREE.Clock();
+let elapsedTime = 0;
 const placementSurfaces = [];
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
+const decorZones = [];
+const collectibles = [];
+const houseGlowState = new Map();
+const footstepGroup = new THREE.Group();
+const footprints = [];
+let footstepCooldown = 0;
+const radialState = { zone: null };
+const defaultDecorColors = {
+  string_lights: '#ffe9b8',
+  star_bulbs: '#ffd2e1',
+  icicle_lights: '#c7f1ff',
+};
+const collectibleUnlocks = [
+  { type: 'star_bulbs', label: 'Star Bulbs' },
+  { type: 'icicle_lights', label: 'Icicle Lights' },
+];
+let audioCtx;
+const uiState = {
+  awaitingStoryIntro: false,
+  storyComplete: false,
+  customizationOpen: false,
+};
 
 const localState = {
   playerId: null,
@@ -74,6 +104,7 @@ const localState = {
   partnerPresent: false,
   outfit: outfitSelect.value,
   hair: hairSelect.value,
+  unlockedDecor: new Set(['string_lights']),
 };
 
 const inputState = {
@@ -94,8 +125,9 @@ const localPlayer = createAvatar({
   outfit: localState.outfit,
   hair: localState.hair,
 });
-localPlayer.group.position.set(0, 1, 0);
+localPlayer.group.position.set(0, 0, 0);
 scene.add(localPlayer.group);
+scene.add(footstepGroup);
 
 const snowSystem = createSnowSystem(600);
 scene.add(snowSystem.points);
@@ -176,6 +208,9 @@ function createNetwork() {
 }
 
 function buildVillage() {
+  decorZones.length = 0;
+  collectibles.length = 0;
+  houseGlowState.clear();
   const groundGeo = new THREE.PlaneGeometry(160, 160, 120, 120);
   const pos = groundGeo.attributes.position;
   for (let i = 0; i < pos.count; i += 1) {
@@ -238,113 +273,170 @@ function buildVillage() {
   const cabinSurfaces = [];
   const cabinConfigs = [
     {
-      id: 'gingerbread-haven',
-      position: { x: -34, z: -26 },
+      id: 'maple-hollow',
+      position: { x: -36, z: -36 },
       style: {
-        facing: 0,
-        body: { width: 18, height: 6.2, depth: 11, color: 0xd9ab78 },
-        upperBody: { width: 16, height: 3.6, depth: 9.5, offsetY: 0.5, color: 0xe3c09a },
+        facing: Math.PI / 2,
+        body: { width: 15, height: 5.3, depth: 9.6, color: 0xc58c69 },
+        upperBody: { width: 12.6, height: 3.1, depth: 8.7, offsetY: 0.6, color: 0xe0a983 },
         modules: [
-          { width: 8, height: 4.2, depth: 5.5, offsetX: -12, offsetZ: 3, color: 0xf2cfaa },
-          { width: 6, height: 5, depth: 4.8, offsetX: 11, offsetZ: -3, color: 0xd9ab78 },
+          { width: 6.5, height: 3.4, depth: 4.8, offsetZ: 4.7, color: 0xecc39f },
+          { width: 5.5, height: 3.2, depth: 4, offsetX: -7.5, color: 0xd9a173 },
         ],
-        roof: { color: 0x8d2f18, height: 2.6, type: 'gable' },
-        trimColor: 0xfff4da,
-        doorColor: 0x4a2415,
-        porch: { depth: 3.4, widthFactor: 1.3, steps: true, rails: true },
-        balcony: { width: 7, depth: 2.4, height: 5.6 },
+        roof: { color: 0x834735, height: 2.6, type: 'gable' },
+        trimColor: 0xffead1,
+        doorColor: 0x4f2d1e,
+        porch: { depth: 3.2, widthFactor: 1.1, steps: true, rails: true },
+        wreathColor: 0x2e7c5b,
+        stringLightsColor: 0xfff2c0,
         dormers: [
-          { width: 3, height: 2.2, depth: 3, offsetX: -2.5, offsetZ: -0.5 },
-          { width: 3, height: 2.2, depth: 3, offsetX: 2.5, offsetZ: 0.5 },
+          { width: 3, height: 2.2, depth: 2.4, offsetX: -2.4, offsetZ: 0.4 },
+          { width: 3, height: 2.2, depth: 2.4, offsetX: 2.4, offsetZ: -0.4 },
         ],
         chimney: true,
-        wreathColor: 0x1c8c53,
-        stringLightsColor: 0xfff6c8,
       },
     },
     {
-      id: 'pine-grove',
-      position: { x: 34, z: -28 },
+      id: 'mint-breeze',
+      position: { x: -34, z: -12 },
       style: {
-        facing: 0,
-        body: { width: 20, height: 6.4, depth: 12, color: 0xdab082 },
-        upperBody: { width: 18, height: 3.6, depth: 10, offsetY: 0.3, color: 0xdab082 },
-        modules: [
-          { width: 10, height: 4.4, depth: 8, offsetX: 12, offsetZ: 4, color: 0xe1b88b },
-          { width: 8, height: 3.8, depth: 5.5, offsetX: -14, offsetZ: 6, color: 0xd3a579 },
-        ],
-        roof: { color: 0x1b5a48, height: 2.2, type: 'gable', tilt: Math.PI / 3.8 },
-        trimColor: 0xe4f0d8,
-        doorColor: 0x8f2b2b,
-        porch: { depth: 3.4, widthFactor: 1.4, steps: true, wrap: true },
-        chimney: true,
-        wreathColor: 0xe74c3c,
-        stringLightsColor: 0xa3ffd4,
-        shuttersColor: 0xa5c99b,
-        dormers: [{ width: 3, height: 2.2, depth: 2.5, offsetX: 0, offsetZ: 0 }],
+        facing: Math.PI / 2,
+        body: { width: 12.2, height: 4.9, depth: 8.3, color: 0xbfded5 },
+        upperBody: { width: 10.5, height: 2.7, depth: 7.2, offsetY: 0.8, color: 0xd8f0e9 },
+        modules: [{ width: 5.6, height: 3, depth: 4, offsetX: 6.5, color: 0xc6ece0 }],
+        roof: { color: 0x3c6b5b, height: 2.3, type: 'gable' },
+        trimColor: 0xf5fff7,
+        doorColor: 0x2c4c41,
+        porch: { depth: 2.6, widthFactor: 1, steps: true, wrap: true },
+        wreathColor: 0x369476,
+        stringLightsColor: 0xfff7df,
       },
     },
     {
-      id: 'aurora-chalet',
-      position: { x: -34, z: 26 },
+      id: 'apricot-nook',
+      position: { x: -34, z: 12 },
       style: {
-        facing: Math.PI,
-        body: { width: 13, height: 5, depth: 9.5, color: 0xdcb388 },
-        upperBody: {
-          width: 12,
-          height: 3.2,
-          depth: 8,
-          offsetY: 0.4,
-          color: 0xdcb388,
-        },
+        facing: Math.PI / 2,
+        body: { width: 13.4, height: 5.1, depth: 9, color: 0xe4b59e },
+        upperBody: { width: 12, height: 3.2, depth: 8, offsetY: 0.45, color: 0xf7d2c1 },
         modules: [
-          { width: 7.5, height: 3.5, depth: 6.5, offsetZ: -6.5, color: 0xeacaa3 },
+          { width: 6.2, height: 3.6, depth: 4.2, offsetZ: -4.4, color: 0xfddaca },
+          { width: 5.4, height: 3.2, depth: 4.6, offsetX: -6.2, color: 0xf2c0ad },
         ],
-        roof: { color: 0x284c73, height: 2.7, type: 'a_frame' },
-        trimColor: 0xd3f0ff,
-        doorColor: 0xfff0c1,
-        wreathColor: 0x51a3a3,
-        stringLightsColor: 0x9de1ff,
-        porch: { depth: 2.2, widthFactor: 0.9, steps: true },
-        chimney: false,
-        balcony: { width: 5, depth: 2.5, height: 4.6, railingColor: 0x9de1ff },
-        dormers: [
-          { width: 2.4, height: 2, depth: 2, offsetX: -2, offsetZ: 0.3 },
-        ],
+        roof: { color: 0x9c4551, height: 2.7, type: 'gable' },
+        trimColor: 0xfff0ea,
+        doorColor: 0x6d2f2f,
+        porch: { depth: 2.9, widthFactor: 1.06, steps: true, rails: true },
+        balcony: { width: 5.2, depth: 2.2, height: 4.5, railingColor: 0xfff0ea },
+        wreathColor: 0x408067,
+        stringLightsColor: 0xffe3d4,
       },
     },
     {
-      id: 'starlit-lodge',
-      position: { x: 34, z: 30 },
+      id: 'cocoa-corner',
+      position: { x: -36, z: 36 },
       style: {
-        facing: Math.PI,
-        body: { width: 22, height: 6.6, depth: 12, color: 0xdcb98f },
-        upperBody: {
-          width: 18,
-          height: 4,
-          depth: 10.5,
-          offsetY: 0.6,
-          color: 0xdcb98f,
-        },
+        facing: Math.PI / 2,
+        body: { width: 16.5, height: 5.6, depth: 10.4, color: 0xb07c5a },
+        upperBody: { width: 14.2, height: 3.3, depth: 9.4, offsetY: 0.5, color: 0xcb9973 },
         modules: [
-          { width: 10, height: 4.6, depth: 6.5, offsetX: 14, color: 0xe8c6a2 },
-          { width: 9, height: 4, depth: 5.5, offsetX: -15, offsetZ: -4.5, color: 0xdcb98f },
+          { width: 7.8, height: 3.6, depth: 5.2, offsetZ: 5.2, color: 0xdbab84 },
+          { width: 6.8, height: 3.8, depth: 4.6, offsetX: 8.4, color: 0xc08c66 },
         ],
-        roof: { color: 0x55321f, height: 2.8, type: 'gable', tilt: Math.PI / 4.2 },
-        trimColor: 0xffd78a,
-        doorColor: 0x3e1a0d,
-        porch: { depth: 3.8, widthFactor: 1.35, steps: true, rails: true, columns: 4 },
-        balcony: { width: 8, depth: 3.5, height: 6.2, railingColor: 0xffd78a },
+        roof: { color: 0x4a281b, height: 2.9, type: 'gable' },
+        trimColor: 0xffefd9,
+        doorColor: 0x2c1c16,
+        porch: { depth: 3.3, widthFactor: 1.2, steps: true, rails: true, wrap: true, columns: 4 },
+        wreathColor: 0x4e8a63,
+        stringLightsColor: 0xfff7d0,
         chimney: true,
-        wreathColor: 0xfde68a,
-        stringLightsColor: 0xff9aa2,
-        dormers: [
-          { width: 3.2, height: 2.2, depth: 2.8, offsetX: -4.5, offsetZ: -0.4 },
-          { width: 3.2, height: 2.2, depth: 2.8, offsetX: 4.5, offsetZ: 0.4 },
+      },
+    },
+    {
+      id: 'jasper-lantern',
+      position: { x: 36, z: -36 },
+      style: {
+        facing: -Math.PI / 2,
+        body: { width: 15.2, height: 5.4, depth: 9.7, color: 0xcdb2a0 },
+        upperBody: { width: 13.4, height: 3.3, depth: 8.9, offsetY: 0.45, color: 0xe1c4b4 },
+        modules: [
+          { width: 6.5, height: 3.6, depth: 4.5, offsetZ: -4.6, color: 0xd8bbab },
+          { width: 5.5, height: 3.4, depth: 4, offsetX: 7.4, color: 0xf0d6c8 },
         ],
+        roof: { color: 0x365377, height: 2.8, type: 'gable' },
+        trimColor: 0xfdf7f0,
+        doorColor: 0x3a2d24,
+        porch: { depth: 2.7, widthFactor: 1.05, steps: true, rails: true },
+        balcony: { width: 6.8, depth: 2.6, height: 4.7 },
+        wreathColor: 0x387875,
+        stringLightsColor: 0xc5f1ff,
+        dormers: [{ width: 3.2, height: 2.3, depth: 2.6, offsetX: 0, offsetZ: 0.4 }],
+      },
+    },
+    {
+      id: 'pine-whisper',
+      position: { x: 34, z: -12 },
+      style: {
+        facing: -Math.PI / 2,
+        body: { width: 12.4, height: 4.9, depth: 8.6, color: 0xa7ccc8 },
+        upperBody: { width: 10.8, height: 2.7, depth: 7.6, offsetY: 0.7, color: 0xbfe0dd },
+        modules: [
+          { width: 5.2, height: 3.1, depth: 4.1, offsetX: -6, color: 0xd9f8f2 },
+        ],
+        roof: { color: 0x2e5156, height: 2.4, type: 'gable' },
+        trimColor: 0xf2fffc,
+        doorColor: 0x203c40,
+        porch: { depth: 2.5, widthFactor: 0.98, steps: true, wrap: true },
+        wreathColor: 0x1f7765,
+        stringLightsColor: 0xd6fff8,
+      },
+    },
+    {
+      id: 'cranberry-cabin',
+      position: { x: 34, z: 12 },
+      style: {
+        facing: -Math.PI / 2,
+        body: { width: 13.8, height: 5.2, depth: 9.4, color: 0xcf8b85 },
+        upperBody: { width: 12, height: 3.1, depth: 8.3, offsetY: 0.5, color: 0xe0a39f },
+        modules: [
+          { width: 6.7, height: 3.3, depth: 4.3, offsetZ: 4.6, color: 0xf1bab3 },
+          { width: 5.6, height: 3.5, depth: 4.4, offsetX: 7, color: 0xd9837c },
+        ],
+        roof: { color: 0x752a32, height: 2.6, type: 'gable' },
+        trimColor: 0xffedea,
+        doorColor: 0x3d191c,
+        porch: { depth: 3.1, widthFactor: 1.08, steps: true, rails: true },
+        wreathColor: 0x32765a,
+        stringLightsColor: 0xffd4ce,
+        dormers: [{ width: 2.8, height: 2, depth: 2.4, offsetX: -2.3, offsetZ: 0 }],
+      },
+    },
+    {
+      id: 'aurora-glow',
+      position: { x: 36, z: 36 },
+      style: {
+        facing: -Math.PI / 2,
+        body: { width: 16.6, height: 5.6, depth: 10.2, color: 0xb8b0d0 },
+        upperBody: { width: 14.2, height: 3.2, depth: 9.2, offsetY: 0.65, color: 0xd6cdea },
+        modules: [
+          { width: 8.2, height: 4, depth: 4.8, offsetZ: -4.7, color: 0xcac1e6 },
+          { width: 6.2, height: 3.5, depth: 4.2, offsetX: -9, color: 0xe8dbff },
+        ],
+        roof: { color: 0x4d4a80, height: 2.8, type: 'gable' },
+        trimColor: 0xfdf4ff,
+        doorColor: 0x2a213e,
+        porch: { depth: 3.5, widthFactor: 1.08, steps: true, rails: true, columns: 4 },
+        balcony: { width: 7.4, depth: 2.6, height: 4.9 },
+        wreathColor: 0x3a7b73,
+        stringLightsColor: 0xe4d5ff,
+        chimney: true,
       },
     },
   ];
+  const laneCenterX =
+    (Math.min(...cabinConfigs.map((cfg) => cfg.position.x)) +
+      Math.max(...cabinConfigs.map((cfg) => cfg.position.x))) /
+    2;
 
   const walkwayAnchors = [];
 
@@ -353,15 +445,57 @@ function buildVillage() {
     cabinSurfaces.push(...cabin.surfaces);
     scene.add(cabin.group);
     placementSurfaces.push(...cabin.surfaces);
+    const frontAnchor = computeFrontAnchor(config);
     walkwayAnchors.push({
+      id: config.id,
       position: config.position,
-      front: computeFrontAnchor(config),
+      front: frontAnchor,
+    });
+    registerDecorZones(config);
+    if (cabin.doorLight) {
+      houseGlowState.set(config.id, {
+        light: cabin.doorLight,
+        intensity: 0.9,
+        target: 0.9,
+      });
+    }
+  });
+
+  const pathSegments = createVillagePaths(walkwayAnchors);
+
+  const plazaTree = createGrandTree();
+  plazaTree.position.set(laneCenterX, 0, -8);
+  scene.add(plazaTree);
+
+  const pond = createFrozenPond(11);
+  pond.position.set(laneCenterX - 12, -0.02, 18);
+  scene.add(pond);
+  const bridge = createWoodenBridge(16);
+  bridge.position.copy(pond.position);
+  bridge.position.y = 0.6;
+  bridge.rotation.y = Math.PI / 2;
+  scene.add(bridge);
+
+  const collectibleSpots = [
+    new THREE.Vector3(laneCenterX - 6, 0.6, -6),
+    new THREE.Vector3(laneCenterX + 8, 0.6, 24),
+  ];
+  collectibleSpots.forEach((position, index) => {
+    const def = collectibleUnlocks[index % collectibleUnlocks.length];
+    const collectible = createCollectible(def.type, def.label);
+    collectible.position.copy(position);
+    scene.add(collectible);
+    collectibles.push({
+      mesh: collectible,
+      type: def.type,
+      label: def.label,
+      baseY: collectible.position.y,
+      collected: false,
+      wobbleOffset: Math.random() * Math.PI * 2,
     });
   });
 
-  createVillagePaths(walkwayAnchors);
-
-  const pathAreas = computePathBounds(cabinConfigs, walkwayAnchors);
+  const pathAreas = computePathBounds(pathSegments);
   const snowMounds = new THREE.Group();
   for (let i = 0; i < 40; i += 1) {
     const radius = Math.random() * 2.2 + 1.6;
@@ -409,30 +543,91 @@ function buildVillage() {
   function computeFrontAnchor(config) {
     const facing = config.style.facing || 0;
     const frontDir = new THREE.Vector3(Math.sin(facing), 0, Math.cos(facing));
-    const porchDepth = config.style.porch?.depth || config.style.porchDepth || 2.2;
-    const offset = config.style.body.depth / 2 + porchDepth + 0.8;
+    const doorOffset = config.style.body.depth / 2 + 0.25;
     return new THREE.Vector3(config.position.x, 0.04, config.position.z).add(
-      frontDir.multiplyScalar(offset),
+      frontDir.multiplyScalar(doorOffset),
     );
   }
 
+  function registerDecorZones(config) {
+    const facing = config.style.facing || 0;
+    const frontDir = new THREE.Vector3(Math.sin(facing), 0, Math.cos(facing)).normalize();
+    const rightDir = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), frontDir).normalize();
+    const segments = 3;
+    const depthOffset = config.style.body.depth / 2 + 0.6;
+    const baseHeight = config.style.body.height * 0.8;
+
+    for (let i = 0; i < segments; i += 1) {
+      const span = segments === 1 ? 0 : (i / (segments - 1)) * 2 - 1;
+      const anchor = new THREE.Vector3(config.position.x, baseHeight, config.position.z)
+        .add(frontDir.clone().multiplyScalar(depthOffset))
+        .add(rightDir.clone().multiplyScalar(span * config.style.body.width * 0.35));
+      const highlight = new THREE.Mesh(
+        new THREE.PlaneGeometry(config.style.body.width * 0.35, 0.6),
+        new THREE.MeshBasicMaterial({
+          color: 0xfff4d0,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      );
+      highlight.position.copy(anchor);
+      highlight.lookAt(anchor.clone().add(frontDir));
+      highlight.userData.zoneId = `${config.id}-zone-${i}`;
+      scene.add(highlight);
+      const zoneData = {
+        id: highlight.userData.zoneId,
+        houseId: config.id,
+        mesh: highlight,
+        anchor,
+        normal: frontDir.clone(),
+        glow: 0,
+        activationRadius: 9,
+      };
+      highlight.userData.zone = zoneData;
+      decorZones.push(zoneData);
+      placementSurfaces.push(highlight);
+    }
+  }
+
   function createVillagePaths(anchors) {
-    if (!anchors.length) return;
-    const xValues = cabinConfigs.map((cfg) => cfg.position.x);
+    if (!anchors.length) return [];
+    const segments = [];
     const zValues = cabinConfigs.map((cfg) => cfg.position.z);
+    const frontXValues = anchors.map(({ front }) => front.x);
+    const mainX = (Math.min(...frontXValues) + Math.max(...frontXValues)) / 2;
 
-    const mainStart = new THREE.Vector3(Math.min(...xValues) - 20, 0.035, 0);
-    const mainEnd = new THREE.Vector3(Math.max(...xValues) + 20, 0.035, 0);
-    createPathSegment(mainStart, mainEnd, 5);
+    const mainStart = new THREE.Vector3(mainX, 0.035, Math.min(...zValues) - 20);
+    const mainEnd = new THREE.Vector3(mainX, 0.035, Math.max(...zValues) + 20);
+    const mainSegment = createPathSegment(mainStart, mainEnd, 5);
+    if (mainSegment) segments.push(mainSegment);
 
-    const crossStart = new THREE.Vector3(0, 0.035, Math.min(...zValues) - 12);
-    const crossEnd = new THREE.Vector3(0, 0.035, Math.max(...zValues) + 12);
-    createPathSegment(crossStart, crossEnd, 3);
+    const mainLine = {
+      x: mainX,
+      startZ: Math.min(mainStart.z, mainEnd.z),
+      endZ: Math.max(mainStart.z, mainEnd.z),
+    };
 
     anchors.forEach(({ front }) => {
-      const walkwayEnd = new THREE.Vector3(front.x, front.y, 0);
-      createPathSegment(front, walkwayEnd, 2.2);
+      const walkwayEnd = computeWalkwayTarget(front, mainLine);
+      if (!walkwayEnd) return;
+      const direction = walkwayEnd.clone().sub(front).setY(0);
+      if (direction.lengthSq() < 0.001) return;
+      const mid = front.clone().addScaledVector(direction, 0.5);
+      const perpendicular = new THREE.Vector3(-direction.z, 0, direction.x).normalize();
+      const curveStrength = Math.min(1.5, direction.length() * 0.25);
+      mid.add(perpendicular.multiplyScalar(curveStrength || 0.4));
+      const walkwayBounds = createCurvedWalkway(
+        [front.clone(), mid, walkwayEnd.clone()],
+        2.2,
+      );
+      if (walkwayBounds) {
+        segments.push(walkwayBounds);
+      }
     });
+
+    return segments;
   }
 
   function createPathSegment(start, end, width = 3) {
@@ -440,10 +635,25 @@ function buildVillage() {
     const length = dir.length();
     if (length < 0.01) return null;
     const center = start.clone().addScaledVector(dir, 0.5);
-    const geometry = new THREE.BoxGeometry(width, 0.08, length);
+    const segmentsX = Math.max(8, Math.floor(length / 1.5));
+    const geometry = new THREE.PlaneGeometry(length, width, segmentsX, 6);
+    const positions = geometry.attributes.position;
+    for (let i = 0; i < positions.count; i += 1) {
+      const x = positions.getX(i);
+      const y = positions.getY(i);
+      const edgeFactor = Math.abs(y) / (width * 0.5);
+      const jitter = (Math.random() - 0.5) * 0.8 * Math.pow(edgeFactor, 0.8);
+      positions.setY(i, y + jitter);
+      if (Math.random() < 0.25) {
+        positions.setX(i, x + (Math.random() - 0.5) * 0.6);
+      }
+    }
+    positions.needsUpdate = true;
+    geometry.rotateX(-Math.PI / 2);
+
     const stoneTexture = new THREE.CanvasTexture(generateStoneTexture());
     stoneTexture.wrapS = stoneTexture.wrapT = THREE.RepeatWrapping;
-    stoneTexture.repeat.set(length / 8, width / 3);
+    stoneTexture.repeat.set(Math.max(1, length / 5), Math.max(1, width / 1.5));
     const mesh = new THREE.Mesh(
       geometry,
       new THREE.MeshStandardMaterial({
@@ -458,34 +668,95 @@ function buildVillage() {
     mesh.castShadow = false;
     mesh.receiveShadow = true;
     scene.add(mesh);
-    return mesh;
+    return {
+      x1: Math.min(start.x, end.x) - width,
+      x2: Math.max(start.x, end.x) + width,
+      z1: Math.min(start.z, end.z) - width,
+      z2: Math.max(start.z, end.z) + width,
+    };
   }
 
-  function computePathBounds(configs, anchors) {
-    const bounds = [];
-    const xValues = configs.map((cfg) => cfg.position.x);
-    const zValues = configs.map((cfg) => cfg.position.z);
-    bounds.push({
-      x1: Math.min(...xValues) - 25,
-      x2: Math.max(...xValues) + 25,
-      z1: -3,
-      z2: 3,
-    });
-    bounds.push({
-      x1: -3,
-      x2: 3,
-      z1: Math.min(...zValues) - 15,
-      z2: Math.max(...zValues) + 15,
-    });
-    anchors.forEach(({ front }) => {
-      bounds.push({
-        x1: Math.min(front.x, 0) - 1.5,
-        x2: Math.max(front.x, 0) + 1.5,
-        z1: Math.min(front.z, 0) - 1.5,
-        z2: Math.max(front.z, 0) + 1.5,
-      });
-    });
+  function createCurvedWalkway(points, width) {
+    const curve = new THREE.CatmullRomCurve3(points);
+    const divisions = Math.max(20, Math.floor(curve.getLength() / 1.2));
+    const samples = curve.getPoints(divisions);
+    const left = [];
+    const right = [];
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+
+    for (let i = 0; i < samples.length; i += 1) {
+      const current = samples[i];
+      const prev = samples[i - 1] || current;
+      const next = samples[i + 1] || current;
+      const tangent = next.clone().sub(prev).setY(0).normalize();
+      const normal = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+      const offset = normal.clone().multiplyScalar(width / 2);
+      left.push(current.clone().add(offset));
+      right.push(current.clone().sub(offset));
+      minX = Math.min(minX, current.x - width);
+      maxX = Math.max(maxX, current.x + width);
+      minZ = Math.min(minZ, current.z - width);
+      maxZ = Math.max(maxZ, current.z + width);
+    }
+
+    const positions = [];
+    const indices = [];
+    const uvs = [];
+    for (let i = 0; i < samples.length; i += 1) {
+      const l = left[i];
+      const r = right[i];
+      positions.push(l.x, 0.04, l.z, r.x, 0.04, r.z);
+      uvs.push(0, i, 1, i);
+    }
+    for (let i = 0; i < samples.length - 1; i += 1) {
+      const a = i * 2;
+      const b = a + 1;
+      const c = a + 2;
+      const d = a + 3;
+      indices.push(a, c, b, b, c, d);
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+
+    const stoneTexture = new THREE.CanvasTexture(generateStoneTexture());
+    stoneTexture.wrapS = stoneTexture.wrapT = THREE.RepeatWrapping;
+    stoneTexture.repeat.set(samples.length / 5, 1);
+    const mesh = new THREE.Mesh(
+      geometry,
+      new THREE.MeshStandardMaterial({
+        map: stoneTexture,
+        color: 0xffffff,
+        roughness: 0.95,
+        metalness: 0.05,
+      }),
+    );
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+
+    return {
+      x1: minX,
+      x2: maxX,
+      z1: minZ,
+      z2: maxZ,
+    };
+  }
+
+  function computePathBounds(bounds) {
     return bounds;
+  }
+
+  function computeWalkwayTarget(front, mainLine) {
+    const clampedZ = Math.min(Math.max(front.z, mainLine.startZ + 2), mainLine.endZ - 2);
+    if (!Number.isFinite(clampedZ)) return null;
+    return new THREE.Vector3(mainLine.x, front.y, clampedZ);
   }
 
   function isOnPath(position, pathBounds) {
@@ -873,35 +1144,142 @@ function createCabin(config) {
     group.add(railing);
   }
 
-  return { id, group, surfaces };
+  return { id, group, surfaces, doorLight };
 }
 
 function createTree() {
   const group = new THREE.Group();
   const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.3, 0.4, 2, 6),
-    new THREE.MeshStandardMaterial({ color: 0x4d331f }),
+    new THREE.CylinderGeometry(0.35, 0.45, 2.2, 8),
+    new THREE.MeshStandardMaterial({ color: 0x5f3b27, roughness: 0.85 }),
   );
-  trunk.position.y = 1;
+  trunk.position.y = 1.1;
   group.add(trunk);
 
-  const levels = 3 + Math.floor(Math.random() * 3);
+  const levels = 3;
   for (let i = 0; i < levels; i += 1) {
+    const radius = 1.9 - i * 0.25;
     const cone = new THREE.Mesh(
-      new THREE.ConeGeometry(1.8 - i * 0.2, 2, 8),
-      new THREE.MeshStandardMaterial({ color: 0x1c5b32, roughness: 0.9 }),
+      new THREE.ConeGeometry(radius, 2.2, 10),
+      new THREE.MeshStandardMaterial({ color: 0x2e725b, roughness: 0.55 }),
     );
-    cone.position.y = 2 + i * 1.1;
+    cone.position.y = 2.2 + i * 1;
     cone.castShadow = true;
+    cone.receiveShadow = true;
     group.add(cone);
-
     const snowCap = new THREE.Mesh(
-      new THREE.ConeGeometry(Math.max(0.4, 1.2 - i * 0.18), 0.3, 8),
-      new THREE.MeshStandardMaterial({ color: 0xf4fbff, roughness: 0.4 }),
+      new THREE.ConeGeometry(Math.max(0.4, radius * 0.55), 0.26, 10),
+      new THREE.MeshStandardMaterial({ color: 0xf7fbff, roughness: 0.4 }),
     );
-    snowCap.position.y = cone.position.y + 0.8;
+    snowCap.position.y = cone.position.y + 0.7;
     group.add(snowCap);
   }
+  return group;
+}
+
+function createGrandTree() {
+  const group = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.9, 1, 4.6, 10),
+    new THREE.MeshStandardMaterial({ color: 0x6d4a33, roughness: 0.8 }),
+  );
+  trunk.position.y = 2.3;
+  group.add(trunk);
+
+  for (let i = 0; i < 4; i += 1) {
+    const layer = new THREE.Mesh(
+      new THREE.ConeGeometry(4.5 - i * 0.7, 2.4, 14),
+      new THREE.MeshStandardMaterial({ color: 0x2e7b63, roughness: 0.5 }),
+    );
+    layer.position.y = 4 + i * 1.2;
+    layer.castShadow = true;
+    group.add(layer);
+  }
+
+  const topper = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.6, 0),
+    new THREE.MeshStandardMaterial({
+      color: 0xffdf8c,
+      emissive: 0xffd46f,
+      emissiveIntensity: 0.8,
+    }),
+  );
+  topper.position.y = 8.2;
+  group.add(topper);
+
+  for (let i = 0; i < 16; i += 1) {
+    const hue = (i / 16) * 0.2;
+    const color = new THREE.Color().setHSL(0.04 + hue * 0.5, 0.65, 0.7);
+    const bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 10, 10),
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.9 }),
+    );
+    const angle = (Math.PI * 2 * i) / 16;
+    const radius = 3 + (i % 4) * 0.3;
+    bulb.position.set(Math.cos(angle) * radius, 4.5 + (i % 4) * 0.9, Math.sin(angle) * radius);
+    group.add(bulb);
+  }
+  return group;
+}
+
+function createFrozenPond(radius = 10) {
+  const pond = new THREE.Mesh(
+    new THREE.CircleGeometry(radius, 48),
+    new THREE.MeshPhysicalMaterial({
+      color: 0x94dff6,
+      roughness: 0.22,
+      metalness: 0.05,
+      transparent: true,
+      opacity: 0.85,
+      clearcoat: 1,
+      clearcoatRoughness: 0.25,
+    }),
+  );
+  pond.rotation.x = -Math.PI / 2;
+  pond.receiveShadow = true;
+  return pond;
+}
+
+function createWoodenBridge(length = 12) {
+  const group = new THREE.Group();
+  const plankMaterial = new THREE.MeshStandardMaterial({ color: 0xc39168, roughness: 0.75 });
+  for (let i = 0; i < 6; i += 1) {
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(length, 0.15, 0.7), plankMaterial);
+    plank.position.set(0, 0.1 + i * 0.05, -1.6 + i * 0.6);
+    plank.castShadow = true;
+    plank.receiveShadow = true;
+    group.add(plank);
+  }
+  const railMaterial = new THREE.MeshStandardMaterial({ color: 0xe0b48f, roughness: 0.7 });
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(length, 0.2, 0.12), railMaterial);
+  rail.position.set(0, 1, 2);
+  group.add(rail);
+  const rail2 = rail.clone();
+  rail2.position.z = -2;
+  group.add(rail2);
+  return group;
+}
+
+function createCollectible(type, label) {
+  const palette = {
+    star_bulbs: 0xfff9b5,
+    icicle_lights: 0xbbe7ff,
+  };
+  const color = palette[type] || 0xffffff;
+  const group = new THREE.Group();
+  const orb = new THREE.Mesh(
+    new THREE.SphereGeometry(0.6, 16, 16),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.7 }),
+  );
+  group.add(orb);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.85, 0.08, 12, 32),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: color, emissiveIntensity: 0.4 }),
+  );
+  ring.rotation.x = Math.PI / 2;
+  group.add(ring);
+  group.add(new THREE.PointLight(color, 1.4, 6));
+  group.userData.label = label;
   return group;
 }
 
@@ -960,21 +1338,50 @@ function generateStoneTexture() {
   canvas.width = 256;
   canvas.height = 256;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#a9a9b2';
+  ctx.fillStyle = '#7e808a';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  for (let i = 0; i < 900; i += 1) {
-    const size = 6 + Math.random() * 14;
-    const x = Math.random() * canvas.width;
-    const y = Math.random() * canvas.height;
-    const gradient = ctx.createRadialGradient(x, y, size * 0.2, x, y, size);
-    gradient.addColorStop(0, 'rgba(255,255,255,0.35)');
-    gradient.addColorStop(0.65, 'rgba(140,141,150,0.6)');
-    gradient.addColorStop(1, 'rgba(80,82,92,0.85)');
-    ctx.fillStyle = gradient;
+
+  for (let i = 0; i < 140; i += 1) {
+    const cx = Math.random() * canvas.width;
+    const cy = Math.random() * canvas.height;
+    const radius = 25 + Math.random() * 35;
+    const points = 6 + Math.floor(Math.random() * 5);
     ctx.beginPath();
-    ctx.arc(x, y, size, 0, Math.PI * 2);
+    for (let p = 0; p < points; p += 1) {
+      const angle = (Math.PI * 2 * p) / points;
+      const offset = radius + Math.random() * 12;
+      const x = cx + Math.cos(angle) * offset;
+      const y = cy + Math.sin(angle) * offset;
+      p === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    const gradient = ctx.createRadialGradient(cx, cy, radius * 0.2, cx, cy, radius);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
+    gradient.addColorStop(0.6, 'rgba(170, 175, 186, 0.95)');
+    gradient.addColorStop(1, 'rgba(70, 72, 80, 0.95)');
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(40, 42, 48, 0.6)';
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha = 0.2;
+  ctx.fillStyle = '#ffffff';
+  for (let i = 0; i < 80; i += 1) {
+    ctx.beginPath();
+    ctx.ellipse(
+      Math.random() * canvas.width,
+      Math.random() * canvas.height,
+      10,
+      4,
+      Math.random() * Math.PI,
+      0,
+      Math.PI * 2,
+    );
     ctx.fill();
   }
+  ctx.globalAlpha = 1;
   return canvas;
 }
 
@@ -1139,23 +1546,58 @@ function createAvatar(appearance = {}) {
     { emissive: true },
   );
 
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.6, 1.6, 6, 12), bodyMat);
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 1.2, 12, 16), bodyMat);
   body.castShadow = true;
-  body.position.y = 1.5;
+  body.position.y = 1.35;
   group.add(body);
 
   const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.5, 24, 16),
-    new THREE.MeshStandardMaterial({ color: 0xfff3eb }),
+    new THREE.SphereGeometry(0.85, 26, 18),
+    new THREE.MeshStandardMaterial({ color: 0xfff3eb, roughness: 0.55 }),
   );
   head.position.y = 2.6;
   head.castShadow = true;
   group.add(head);
 
+  const facePlate = new THREE.Mesh(
+    new THREE.CircleGeometry(0.65, 24),
+    new THREE.MeshBasicMaterial({ color: 0xfffaf6 }),
+  );
+  facePlate.position.set(0, 2.65, 0.75);
+  group.add(facePlate);
+
+  const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0x2a1a18 });
+  const blushMaterial = new THREE.MeshBasicMaterial({ color: 0xffb9c6, transparent: true, opacity: 0.6 });
+  const leftEye = new THREE.Mesh(new THREE.CircleGeometry(0.07, 12), eyeMaterial);
+  const rightEye = leftEye.clone();
+  leftEye.position.set(-0.18, 2.7, 0.82);
+  rightEye.position.set(0.18, 2.7, 0.82);
+  group.add(leftEye, rightEye);
+  const blushLeft = new THREE.Mesh(new THREE.CircleGeometry(0.12, 12), blushMaterial);
+  blushLeft.position.set(-0.28, 2.5, 0.8);
+  const blushRight = blushLeft.clone();
+  blushRight.position.x = 0.28;
+  group.add(blushLeft, blushRight);
+
   const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.65, 0.15, 8, 18), accentMat);
   scarf.rotation.x = Math.PI / 2;
   scarf.position.y = 2.2;
   group.add(scarf);
+
+  const bootGroup = new THREE.Group();
+  for (let i = 0; i < 2; i += 1) {
+    const boot = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.28, 0.32, 0.5, 14),
+      registerMaterial(
+        new THREE.MeshStandardMaterial({ color: config.colors.accent, roughness: 0.45 }),
+        'accent',
+      ),
+    );
+    boot.position.set(i === 0 ? -0.25 : 0.25, 0.35, 0);
+    boot.castShadow = true;
+    bootGroup.add(boot);
+  }
+  group.add(bootGroup);
 
   const outfitGroup = new THREE.Group();
   group.add(outfitGroup);
@@ -1342,6 +1784,10 @@ function setupUI() {
   });
 
   startButton.addEventListener('click', () => {
+    uiState.awaitingStoryIntro = true;
+    uiState.storyComplete = false;
+    startButton.disabled = true;
+    startButton.textContent = 'Starting…';
     network.ensureConnection();
     network.send('create_session', {
       displayName: randomSnowyName(),
@@ -1356,9 +1802,11 @@ function setupUI() {
   joinButton.addEventListener('click', () => {
     const code = joinInput.value.trim().toUpperCase();
     if (code.length < 6) {
-      showToast('Enter a 6-character invite code.');
+      showToast('Enter a 6-letter invite code.');
       return;
     }
+    uiState.awaitingStoryIntro = false;
+    uiState.storyComplete = true;
     network.ensureConnection();
     network.send('join_session', {
       code,
@@ -1370,6 +1818,12 @@ function setupUI() {
       },
     });
   });
+
+  if (introContinueBtn) {
+    introContinueBtn.addEventListener('click', () => {
+      completeStoryIntro();
+    });
+  }
 
   outfitColorInput.addEventListener('input', (event) => {
     localState.avatarColors.outfit = event.target.value;
@@ -1413,6 +1867,29 @@ function setupUI() {
     const label = document.body.classList.contains('photo-mode') ? 'Exit Photo Mode' : 'Photo Mode';
     photoModeBtn.textContent = label;
   });
+
+  if (customizeToggleBtn) {
+    customizeToggleBtn.addEventListener('click', openCustomizeModal);
+  }
+  if (customizeCloseBtn) {
+    customizeCloseBtn.addEventListener('click', closeCustomizeModal);
+  }
+  if (customizeModal) {
+    customizeModal.addEventListener('click', (event) => {
+      if (event.target === customizeModal) {
+        closeCustomizeModal();
+      }
+    });
+  }
+
+  radialButtons.forEach((button) => {
+    button.addEventListener('pointerdown', (event) => event.stopPropagation());
+    button.addEventListener('click', () => {
+      if (button.disabled || !radialState.zone) return;
+      applyDecorationToZone(radialState.zone, button.dataset.type);
+    });
+  });
+  refreshRadialMenuLocks();
 }
 
 function setupInput() {
@@ -1437,6 +1914,13 @@ function setupInput() {
         break;
       case 'p':
         photoModeBtn.click();
+        break;
+      case 'escape':
+        if (uiState.customizationOpen) {
+          closeCustomizeModal();
+        } else {
+          closeRadialMenu();
+        }
         break;
       default:
         break;
@@ -1467,6 +1951,8 @@ function setupInput() {
   });
 
   renderer.domElement.addEventListener('pointerdown', (event) => {
+    closeRadialMenu();
+    ensureAudioContext();
     dragState.active = true;
     dragState.moved = false;
     dragState.pointerId = event.pointerId;
@@ -1563,15 +2049,62 @@ function randomSnowyName() {
   }`;
 }
 
+function openJoinPopup() {
+  if (!joinPopup) return;
+  joinPopup.classList.remove('hidden');
+  joinInput.value = '';
+  setTimeout(() => joinInput && joinInput.focus(), 50);
+}
+
+function showStoryIntro() {
+  if (!storyIntroPanel) return;
+  storyIntroPanel.classList.remove('hidden');
+}
+
+function completeStoryIntro() {
+  if (!storyIntroPanel) return;
+  storyIntroPanel.classList.add('hidden');
+  uiState.awaitingStoryIntro = false;
+  uiState.storyComplete = true;
+  showHudPanel();
+}
+
+function showHudPanel() {
+  if (storyIntroPanel) {
+    storyIntroPanel.classList.add('hidden');
+  }
+  hudPanel.classList.remove('hidden');
+  uiState.storyComplete = true;
+  showToast('Connected! Invite your partner with the code above.');
+  if (customizeToggleBtn) {
+    customizeToggleBtn.classList.remove('hidden');
+  }
+}
+
+function openCustomizeModal() {
+  if (!customizeModal) return;
+  customizeModal.classList.remove('hidden');
+  uiState.customizationOpen = true;
+}
+
+function closeCustomizeModal() {
+  if (!customizeModal) return;
+  customizeModal.classList.add('hidden');
+  uiState.customizationOpen = false;
+}
+
 function handleSessionJoined(data) {
   localState.playerId = data.playerId;
   localState.sessionCode = data.code;
   sessionPanel.classList.add('hidden');
-  hudPanel.classList.remove('hidden');
   sessionCodeLabel.textContent = data.code;
-  showToast('Connected! Invite your partner with the code above.');
   hydrateWorld(data.state);
   sendAvatarUpdate();
+  if (uiState.awaitingStoryIntro && !uiState.storyComplete) {
+    showStoryIntro();
+  } else {
+    showHudPanel();
+  }
 }
 
 function hydrateWorld(state) {
@@ -1623,29 +2156,88 @@ function updateTransform(group, transform) {
 
 function attemptDecorationPlacement(event) {
   if (!localState.sessionCode) return;
+  const zone = intersectDecorZone(event);
+  if (zone) {
+    openRadialMenu(zone, { x: event.clientX, y: event.clientY });
+  }
+}
+
+function intersectDecorZone(event) {
+  if (!decorZones.length) return null;
   pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
   pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const intersects = raycaster.intersectObjects(placementSurfaces, true);
-  if (!intersects.length) return;
+  const zoneMeshes = decorZones.map((zone) => zone.mesh);
+  const intersects = raycaster.intersectObjects(zoneMeshes, true);
+  if (!intersects.length) return null;
   const hit = intersects[0];
-  placeDecoration(hit.point, hit.face?.normal || new THREE.Vector3(0, 1, 0));
+  const zone = hit.object.userData.zone;
+  if (zone && zone.glow > 0.2) {
+    return zone;
+  }
+  return null;
 }
 
-function placeDecoration(point, normal) {
+function placeDecoration(point, normal, options = {}) {
+  const typeId = options.typeId || localState.decorType;
+  const chosenColor = options.color || defaultDecorColors[typeId] || localState.decorColor;
+  const cabinId = options.cabinId || 'storybook-home';
+  const facingNormal = normal ? normal.clone() : new THREE.Vector3(0, 1, 0);
   const decoration = {
-    typeId: localState.decorType,
-    color: localState.decorColor,
-    glow: 0.6,
+    typeId,
+    color: chosenColor,
+    glow: options.glow ?? 0.65,
+    cabinId,
     transform: {
       position: { x: point.x, y: point.y, z: point.z },
-      rotation: { x: 0, y: Math.atan2(normal.x, normal.z) || 0, z: 0 },
+      rotation: { x: 0, y: Math.atan2(facingNormal.x, facingNormal.z) || 0, z: 0 },
       scale: 1,
     },
   };
 
   network.send('place_decoration', decoration);
-  showToast(`Placed ${localState.decorType.replace('_', ' ')} ✨`);
+  localState.decorType = typeId;
+  showToast(`Placed ${typeId.replace(/_/g, ' ')} ✨`);
+  playChime();
+  boostHouseGlow(cabinId);
+}
+
+function openRadialMenu(zone, screenPosition) {
+  if (!radialMenu) return;
+  radialState.zone = zone;
+  radialMenu.style.left = `${screenPosition.x}px`;
+  radialMenu.style.top = `${screenPosition.y}px`;
+  radialMenu.classList.remove('hidden');
+  radialMenu.classList.add('visible');
+  refreshRadialMenuLocks();
+}
+
+function closeRadialMenu() {
+  if (!radialMenu) return;
+  radialState.zone = null;
+  radialMenu.classList.remove('visible');
+  radialMenu.classList.add('hidden');
+}
+
+function applyDecorationToZone(zone, typeId) {
+  closeRadialMenu();
+  const color = defaultDecorColors[typeId] || defaultDecorColors.string_lights;
+  placeDecoration(zone.anchor, zone.normal, { typeId, color, cabinId: zone.houseId, glow: 0.8 });
+}
+
+function refreshRadialMenuLocks() {
+  radialButtons.forEach((button) => {
+    const type = button.dataset.type;
+    button.disabled = !localState.unlockedDecor.has(type);
+  });
+}
+
+function unlockDecorType(type, label) {
+  if (localState.unlockedDecor.has(type)) return;
+  localState.unlockedDecor.add(type);
+  refreshRadialMenuLocks();
+  playChime([820, 980]);
+  showToast(`${label} unlocked!`);
 }
 
 function upsertDecoration(data) {
@@ -1657,6 +2249,7 @@ function upsertDecoration(data) {
   }
   mesh.position.set(data.transform.position.x, data.transform.position.y, data.transform.position.z);
   mesh.rotation.y = data.transform.rotation.y || 0;
+  boostHouseGlow(data.cabinId);
 }
 
 function createDecorationMesh(data) {
@@ -1689,6 +2282,28 @@ function createDecorationMesh(data) {
       );
       mesh.add(new THREE.PointLight(color.getHex(), 0.8, 8));
       break;
+    case 'icicle_lights': {
+      const group = new THREE.Group();
+      const icicleMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.7 });
+      for (let i = 0; i < 6; i += 1) {
+        const icicle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.2, 1.2, 8), icicleMat);
+        icicle.position.set(-1.2 + i * 0.5, 1.2 - Math.random() * 0.2, 0);
+        group.add(icicle);
+      }
+      mesh = group;
+      break;
+    }
+    case 'star_bulbs': {
+      const group = new THREE.Group();
+      const starMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.9 });
+      for (let i = 0; i < 5; i += 1) {
+        const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.3), starMat);
+        star.position.set(-1 + i * 0.5, 2 + Math.sin(i) * 0.2, 0);
+        group.add(star);
+      }
+      mesh = group;
+      break;
+    }
     case 'string_lights':
     default: {
       const group = new THREE.Group();
@@ -1724,12 +2339,14 @@ function sendAvatarUpdate() {
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
-  updatePlayer(delta);
+  elapsedTime += delta;
+  updatePlayer(delta, elapsedTime);
   updateSnow(delta);
+  updateFootprints(delta);
   renderer.render(scene, camera);
 }
 
-function updatePlayer(delta) {
+function updatePlayer(delta, elapsed) {
   if (!dragState.active && !autoFollowPaused) {
     const yawEdgeDirection =
       pointerState.x < EDGE_THRESHOLD ? 1 : pointerState.x > 1 - EDGE_THRESHOLD ? -1 : 0;
@@ -1770,13 +2387,31 @@ function updatePlayer(delta) {
   if (forwardInput !== 0) moveVector.add(forwardDir.clone().multiplyScalar(forwardInput));
   if (strafeInput !== 0) moveVector.add(rightDir.clone().multiplyScalar(strafeInput));
 
-  if (moveVector.lengthSq() > 0) {
+  const isMoving = moveVector.lengthSq() > 0;
+  if (isMoving) {
     const facing = moveVector.clone().normalize();
-    localPlayer.group.position.add(facing.multiplyScalar(delta * 6));
+    localPlayer.group.position.add(facing.multiplyScalar(delta * 5));
     const angle = Math.atan2(moveVector.x, moveVector.z);
     localPlayer.group.rotation.y = angle;
     sendAvatarUpdate();
+    footstepCooldown -= delta;
+    if (footstepCooldown <= 0) {
+      footstepCooldown = 0.35;
+      spawnFootprint(localPlayer.group.position, angle);
+      playFootstepSound();
+    }
+  } else {
+    footstepCooldown = Math.max(0, footstepCooldown - delta * 0.5);
   }
+
+  const baseHeight = 0;
+  const bob = isMoving ? Math.max(0, Math.sin(elapsed * 6) * 0.08) : 0;
+  const targetBob = baseHeight + bob;
+  localPlayer.group.position.y = THREE.MathUtils.lerp(
+    localPlayer.group.position.y,
+    targetBob,
+    isMoving ? 0.35 : 0.2,
+  );
 
   cameraTarget.lerp(localPlayer.group.position, 0.08);
   const offset = new THREE.Vector3(
@@ -1788,6 +2423,9 @@ function updatePlayer(delta) {
   const desiredPosition = localPlayer.group.position.clone().add(offset);
   camera.position.lerp(desiredPosition, 0.08);
   camera.lookAt(cameraTarget);
+  updateDecorZoneHighlights(delta);
+  updateCollectibles(delta, elapsed);
+  updateHouseGlow(delta);
 }
 
 function updateSnow(delta) {
@@ -1802,6 +2440,109 @@ function updateSnow(delta) {
     positions.setY(i, y);
   }
   positions.needsUpdate = true;
+}
+
+function updateDecorZoneHighlights(delta) {
+  const playerPos = localPlayer.group.position;
+  decorZones.forEach((zone) => {
+    const distance = zone.anchor.distanceTo(playerPos);
+    const targetGlow = distance < zone.activationRadius ? 0.85 : 0;
+    zone.glow = THREE.MathUtils.lerp(zone.glow, targetGlow, delta * 4);
+    zone.mesh.material.opacity = zone.glow;
+    zone.mesh.scale.setScalar(1 + zone.glow * 0.1);
+  });
+}
+
+function updateCollectibles(delta, elapsed) {
+  collectibles.forEach((collectible) => {
+    if (collectible.collected) return;
+    collectible.mesh.rotation.y += delta * 0.8;
+    collectible.mesh.position.y = collectible.baseY + Math.sin(elapsed * 2 + collectible.wobbleOffset) * 0.15;
+    const distance = collectible.mesh.position.distanceTo(localPlayer.group.position);
+    if (distance < 2.2) {
+      collectible.collected = true;
+      scene.remove(collectible.mesh);
+      unlockDecorType(collectible.type, collectible.label);
+    }
+  });
+}
+
+function spawnFootprint(position, rotation) {
+  const footprint = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.5, 0.9),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }),
+  );
+  footprint.rotation.x = -Math.PI / 2;
+  footprint.rotation.z = rotation;
+  footprint.position.set(position.x, 0.04, position.z);
+  footstepGroup.add(footprint);
+  footprints.push({ mesh: footprint, life: 4 });
+}
+
+function updateFootprints(delta) {
+  for (let i = footprints.length - 1; i >= 0; i -= 1) {
+    const entry = footprints[i];
+    entry.life -= delta;
+    entry.mesh.material.opacity = Math.max(0, entry.life / 4);
+    if (entry.life <= 0) {
+      footstepGroup.remove(entry.mesh);
+      footprints.splice(i, 1);
+    }
+  }
+}
+
+function boostHouseGlow(cabinId) {
+  const entry = houseGlowState.get(cabinId);
+  if (!entry) return;
+  entry.target = Math.min(entry.target + 0.2, 2.5);
+}
+
+function updateHouseGlow(delta) {
+  houseGlowState.forEach((entry) => {
+    entry.intensity = THREE.MathUtils.lerp(entry.intensity ?? 1, entry.target, delta * 2);
+    if (entry.light) {
+      entry.light.intensity = entry.intensity;
+    }
+    entry.target = THREE.MathUtils.lerp(entry.target, 1.2, delta * 0.4);
+  });
+}
+
+function ensureAudioContext() {
+  if (audioCtx) return audioCtx;
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) return null;
+  audioCtx = new AudioCtor();
+  return audioCtx;
+}
+
+function playChime(pitches = [640, 880]) {
+  const ctx = ensureAudioContext();
+  if (!ctx) return;
+  pitches.forEach((pitch, index) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = pitch;
+    gain.gain.setValueAtTime(0.2, ctx.currentTime + index * 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35 + index * 0.02);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(ctx.currentTime + index * 0.02);
+    osc.stop(ctx.currentTime + 0.4 + index * 0.02);
+  });
+}
+
+function playFootstepSound() {
+  const ctx = ensureAudioContext();
+  if (!ctx) return;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = 160;
+  gain.gain.setValueAtTime(0.08, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.21);
 }
 
 function showToast(message) {

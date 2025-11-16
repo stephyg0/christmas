@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Frostfall Haven</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="ui-root">
+      <section class="story-panel" id="session-panel">
+        <div class="story-card">
+          <h1>Forrest and Steph’s Christmas Wonderland</h1>
+          <p>Gather lights, hang decorations, and make this snowy village glow again.</p>
+          <div class="story-actions">
+            <button id="start-session" class="story-btn primary">Start Cozy Session</button>
+          </div>
+          <div class="join-card">
+            <h3>Already have an invite code?</h3>
+            <div class="join-input">
+              <input id="join-code" placeholder="ABC123" maxlength="6" />
+              <button id="join-session" class="story-btn ghost">Join Cozy Session</button>
+            </div>
+            <p class="hint">Ask your partner for their code and jump into the same town.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="story-intro hidden" id="story-intro">
+        <div class="intro-card">
+          <h2>Once upon a winter night…</h2>
+          <p>
+            Forrest and Steph discovered a sleepy village deep in the snow. Its cabins were dark, its paths
+            were quiet, and every window longed for a little holiday glow.
+          </p>
+          <p>
+            Together, you can gather shimmering bulbs, hang warm lights, and turn this frosted town into a
+            sparkling wonderland. Ready to begin?
+          </p>
+          <button id="intro-continue" class="story-btn primary">Continue</button>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="hud-panel">
+        <div class="hud-row compact">
+          <div class="session-display">
+            <h2>Session Code</h2>
+            <span id="session-code">--</span>
+          </div>
+          <button id="customize-toggle" class="dashboard-btn hidden">
+            <span class="icon">🎀</span>
+            Customize
+          </button>
+        </div>
+      </section>
+
+      <div id="toast"></div>
+
+    </div>
+
+    <div id="customize-modal" class="customize-modal hidden">
+      <div class="customize-card">
+        <button id="customize-close" class="close-btn">✕</button>
+        <h2>Cozy Avatar</h2>
+        <div class="customize-grid">
+          <div class="customize-section">
+            <h3>Colors</h3>
+            <label>
+              Outfit Color
+              <input type="color" id="outfit-color" value="#ffb7c5" />
+            </label>
+            <label>
+              Accent Color
+              <input type="color" id="accent-color" value="#ffd966" />
+            </label>
+            <label>
+              Glow Color
+              <input type="color" id="decor-color" value="#fff8e7" />
+            </label>
+          </div>
+          <div class="customize-section">
+            <h3>Style</h3>
+            <label>
+              Outfit Style
+              <select id="outfit-select">
+                <option value="parka">Cozy Parka</option>
+                <option value="cape">Starlit Cape</option>
+                <option value="sweater">Cable Sweater</option>
+              </select>
+            </label>
+            <label>
+              Hair Style
+              <select id="hair-select">
+                <option value="soft-wave">Soft Wave</option>
+                <option value="braided-crown">Braided Crown</option>
+                <option value="pom-hat">Pom Hat</option>
+              </select>
+            </label>
+            <label>
+              Decor Type
+              <select id="decor-select">
+                <option value="string_lights">String Lights</option>
+                <option value="wreath">Wreath</option>
+                <option value="snowglobe">Snow Globe</option>
+                <option value="lantern">Lantern</option>
+              </select>
+            </label>
+          </div>
+          <div class="customize-section">
+            <h3>Vibes</h3>
+            <button id="snow-toggle" class="story-btn ghost">Toggle Snow</button>
+            <button id="photo-mode" class="story-btn ghost">Photo Mode</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <canvas id="scene"></canvas>
+    <div id="decor-radial" class="decor-radial hidden">
+      <button data-type="string_lights">String</button>
+      <button data-type="star_bulbs">Stars</button>
+      <button data-type="icicle_lights">Icicles</button>
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
