@@ -23,15 +23,25 @@ const introContinueBtn = document.getElementById('intro-continue');
 const customizeToggleBtn = document.getElementById('customize-toggle');
 const customizeModal = document.getElementById('customize-modal');
 const customizeCloseBtn = document.getElementById('customize-close');
+const bulbCountLabel = document.getElementById('bulb-count');
+const throwMeterEl = document.getElementById('throw-meter');
+const throwMeterFill = throwMeterEl ? throwMeterEl.querySelector('.fill') : null;
+const throwMeterLabel = document.getElementById('throw-meter-label');
+const storyCharacterButtons = document.querySelectorAll('#story-character-select .character-card');
+const modalCharacterButtons = document.querySelectorAll('#modal-character-select .character-card');
+const joinToggleBtn = document.getElementById('join-toggle');
+const joinCard = document.getElementById('join-card');
+const hudCollapseBtn = document.getElementById('hud-collapse');
+const strandSocketsEl = document.getElementById('strand-sockets');
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
   antialias: true,
   alpha: true,
 });
-renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
@@ -62,6 +72,16 @@ let autoResumeTimeout = null;
 const EDGE_THRESHOLD = 0.08;
 const EDGE_PAN_SPEED = 0.6;
 const EDGE_TILT_SPEED = 0.4;
+const STRAND_SOCKET_COUNT = 8;
+const STRAND_SEGMENTS = 12;
+const BULB_COLORS = ['#ff9aa0', '#ffe48f', '#a2f2cb', '#93d0ff', '#f7b6ff', '#fff4c8'];
+const BULB_PICKUP_COUNT = 32;
+const THROW_FULL_DURATION = 900;
+const THROW_MIN_DURATION = 400;
+const HIGHLIGHT_UPDATE_INTERVAL = 1 / 45;
+const PICKUP_UPDATE_INTERVAL = 1 / 40;
+const COLLECTIBLE_UPDATE_INTERVAL = 1 / 35;
+const HOUSE_GLOW_INTERVAL = 1 / 30;
 
 const clock = new THREE.Clock();
 let elapsedTime = 0;
@@ -70,15 +90,37 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const decorZones = [];
 const collectibles = [];
+const bulbPickups = [];
+const bulbSpawnBounds = { x: 110, z: 110 };
+let pickupSpawnContext = null;
+const throwEffects = [];
+const sparkEffects = [];
 const houseGlowState = new Map();
 const footstepGroup = new THREE.Group();
 const footprints = [];
 let footstepCooldown = 0;
+let playerIsMoving = false;
+let highlightAccumulator = 0;
+let pickupAccumulator = 0;
+let collectibleAccumulator = 0;
+let houseGlowAccumulator = 0;
 const radialState = { zone: null };
 const defaultDecorColors = {
   string_lights: '#ffe9b8',
   star_bulbs: '#ffd2e1',
   icicle_lights: '#c7f1ff',
+};
+const CHARACTER_PRESETS = {
+  steph: {
+    colors: { outfit: '#d07c30', accent: '#be4f2f' },
+    hair: 'soft-wave',
+    label: 'Steph',
+  },
+  forrest: {
+    colors: { outfit: '#4c99a8', accent: '#3b3b46' },
+    hair: 'pom-hat',
+    label: 'Forrest',
+  },
 };
 const collectibleUnlocks = [
   { type: 'star_bulbs', label: 'Star Bulbs' },
@@ -104,6 +146,7 @@ const localState = {
   partnerPresent: false,
   outfit: outfitSelect.value,
   hair: hairSelect.value,
+  character: 'steph',
   unlockedDecor: new Set(['string_lights']),
 };
 
@@ -113,6 +156,26 @@ const inputState = {
   left: false,
   right: false,
 };
+const strandState = {
+  sockets: Array(STRAND_SOCKET_COUNT).fill(null),
+  group: null,
+  line: null,
+  bulbMeshes: [],
+  socketMaterials: [],
+  uiDots: [],
+  swingPhase: 0,
+  cachedPoints: [],
+};
+const throwState = {
+  charging: false,
+  zone: null,
+  pointerId: null,
+  startTime: 0,
+  progress: 0,
+};
+const tempVecA = new THREE.Vector3();
+const tempVecB = new THREE.Vector3();
+const tempVecC = new THREE.Vector3();
 
 const remotePlayers = new Map();
 const decorationMeshes = new Map();
@@ -128,11 +191,14 @@ const localPlayer = createAvatar({
 localPlayer.group.position.set(0, 0, 0);
 scene.add(localPlayer.group);
 scene.add(footstepGroup);
+initLightStrand();
+initStrandUI();
 
-const snowSystem = createSnowSystem(600);
+const snowSystem = createSnowSystem(260);
 scene.add(snowSystem.points);
 
 setupUI();
+selectCharacter(localState.character, { applyPreset: true, updateInputs: true, silent: true });
 setupInput();
 setInterval(() => {
   if (localState.sessionCode) {
@@ -143,14 +209,49 @@ animate();
 
 const network = createNetwork();
 
+function selectCharacter(name, options = {}) {
+  const variant = CHARACTER_PRESETS[name] ? name : 'steph';
+  const preset = CHARACTER_PRESETS[variant];
+  localState.character = variant;
+  if (options.applyPreset) {
+    localState.avatarColors.outfit = preset.colors.outfit;
+    localState.avatarColors.accent = preset.colors.accent;
+    localState.hair = preset.hair;
+    outfitColorInput.value = preset.colors.outfit;
+    accentColorInput.value = preset.colors.accent;
+    hairSelect.value = preset.hair;
+    localPlayer.setColors(localState.avatarColors);
+    localPlayer.setHair(localState.hair);
+  }
+  localPlayer.setCharacter(variant, { applyPreset: false });
+  updateCharacterButtons(variant);
+  if (!options.silent) {
+    sendAvatarUpdate();
+  }
+}
+
+function updateCharacterButtons(active) {
+  const updateGroup = (buttons) => {
+    buttons?.forEach((button) => {
+      if (!button) return;
+      button.classList.toggle('active', button.dataset.character === active);
+    });
+  };
+  updateGroup(storyCharacterButtons);
+  updateGroup(modalCharacterButtons);
+}
+
 function normalizeAvatarAppearance(avatar = {}) {
+  const character = CHARACTER_PRESETS[avatar.character] ? avatar.character : 'steph';
+  const preset = CHARACTER_PRESETS[character];
   return {
+    character,
     colors: {
-      outfit: avatar.colors?.outfit || '#ffb7c5',
-      accent: avatar.colors?.accent || '#ffd966',
+      outfit: avatar.colors?.outfit || preset.colors.outfit,
+      accent: avatar.colors?.accent || preset.colors.accent,
     },
     outfit: avatar.outfit || 'parka',
-    hair: avatar.hair || 'soft-wave',
+    hair: avatar.hair || preset.hair,
   };
 }
 
@@ -210,6 +311,7 @@ function createNetwork() {
 function buildVillage() {
   decorZones.length = 0;
   collectibles.length = 0;
+  bulbPickups.length = 0;
   houseGlowState.clear();
   const groundGeo = new THREE.PlaneGeometry(160, 160, 120, 120);
   const pos = groundGeo.attributes.position;
@@ -464,7 +566,7 @@ function buildVillage() {
   const pathSegments = createVillagePaths(walkwayAnchors);
 
   const plazaTree = createGrandTree();
-  plazaTree.position.set(laneCenterX, 0, -8);
+  plazaTree.position.set(laneCenterX, 0, -18);
   scene.add(plazaTree);
 
   const pond = createFrozenPond(11);
@@ -475,25 +577,6 @@ function buildVillage() {
   bridge.position.y = 0.6;
   bridge.rotation.y = Math.PI / 2;
   scene.add(bridge);
-
-  const collectibleSpots = [
-    new THREE.Vector3(laneCenterX - 6, 0.6, -6),
-    new THREE.Vector3(laneCenterX + 8, 0.6, 24),
-  ];
-  collectibleSpots.forEach((position, index) => {
-    const def = collectibleUnlocks[index % collectibleUnlocks.length];
-    const collectible = createCollectible(def.type, def.label);
-    collectible.position.copy(position);
-    scene.add(collectible);
-    collectibles.push({
-      mesh: collectible,
-      type: def.type,
-      label: def.label,
-      baseY: collectible.position.y,
-      collected: false,
-      wobbleOffset: Math.random() * Math.PI * 2,
-    });
-  });
 
   const pathAreas = computePathBounds(pathSegments);
   const snowMounds = new THREE.Group();
@@ -527,16 +610,18 @@ function buildVillage() {
   scene.add(cabinPiles);
 
   const cabinBounds = cabinConfigs.map((config) => calculateCabinBounds(config));
+  pickupSpawnContext = { pathAreas, cabinBounds };
+  spawnLightPickups();
 
-  for (let i = 0; i < 32; i += 1) {
-    const angle = (Math.PI * 2 * i) / 32;
-    const radius = 40 + Math.random() * 20;
-    const position = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
-    if (isNearCabin(position, cabinBounds)) continue;
-    const tree = createTree();
-    tree.position.copy(position);
-    scene.add(tree);
-  }
+    for (let i = 0; i < 20; i += 1) {
+      const angle = (Math.PI * 2 * i) / 20;
+      const radius = 42 + Math.random() * 18;
+      const position = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+      if (isNearCabin(position, cabinBounds)) continue;
+      const tree = createTree();
+      tree.position.copy(position);
+      scene.add(tree);
+    }
 
   return { ground, cabins: cabinSurfaces };
 
@@ -589,6 +674,55 @@ function buildVillage() {
       decorZones.push(zoneData);
       placementSurfaces.push(highlight);
     }
+  }
+
+  function spawnLightPickups() {
+    if (!pickupSpawnContext) return;
+    while (bulbPickups.length > 0) {
+      const entry = bulbPickups.pop();
+      if (entry?.mesh) {
+        scene.remove(entry.mesh);
+      }
+    }
+    for (let i = 0; i < BULB_PICKUP_COUNT; i += 1) {
+      spawnSingleBulb();
+    }
+  }
+
+  function spawnSingleBulb() {
+    if (!pickupSpawnContext) return null;
+    const { pathAreas, cabinBounds } = pickupSpawnContext;
+    const color = BULB_COLORS[Math.floor(Math.random() * BULB_COLORS.length)];
+    const pickup = createBulbPickup(color);
+    const position = findSpawnPosition(pathAreas, cabinBounds);
+    pickup.position.copy(position);
+    const entry = {
+      mesh: pickup,
+      color,
+      baseY: pickup.position.y,
+      wobbleOffset: Math.random() * Math.PI * 2,
+      collected: false,
+    };
+    scene.add(pickup);
+    bulbPickups.push(entry);
+    return entry;
+  }
+
+  function findSpawnPosition(pathAreas, cabinBounds) {
+    const position = new THREE.Vector3();
+    let attempts = 0;
+    do {
+      position.set(
+        (Math.random() - 0.5) * bulbSpawnBounds.x,
+        0.08,
+        (Math.random() - 0.5) * bulbSpawnBounds.z,
+      );
+      attempts += 1;
+    } while (
+      (isOnPath(position, pathAreas) || isNearCabin(position, cabinBounds)) &&
+      attempts < 30
+    );
+    return position.clone();
   }
 
   function createVillagePaths(anchors) {
@@ -1283,6 +1417,31 @@ function createCollectible(type, label) {
   return group;
 }
 
+function createBulbPickup(color) {
+  const group = new THREE.Group();
+  const glass = new THREE.Mesh(
+    new THREE.SphereGeometry(0.25, 14, 14),
+    new THREE.MeshPhysicalMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 0.7,
+      roughness: 0.25,
+      transmission: 0.45,
+      thickness: 0.2,
+    }),
+  );
+  glass.position.y = 0.2;
+  group.add(glass);
+  const cap = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.13, 0.2, 10),
+    new THREE.MeshStandardMaterial({ color: 0x2d2f42, roughness: 0.8 }),
+  );
+  cap.position.y = 0.45;
+  group.add(cap);
+  group.add(new THREE.PointLight(new THREE.Color(color).getHex(), 0.8, 4));
+  return group;
+}
+
 function generateLogTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
@@ -1738,6 +1897,7 @@ function createAvatar(appearance = {}) {
     colors: { ...config.colors },
     outfit: config.outfit,
     hair: config.hair,
+    character: config.character || 'steph',
   };
 
   function setOutfit(name) {
@@ -1759,9 +1919,20 @@ function createAvatar(appearance = {}) {
     applyColors(appearanceState.colors);
   }
 
+  function setCharacter(name, options = {}) {
+    const variantName = CHARACTER_PRESETS[name] ? name : 'steph';
+    const preset = CHARACTER_PRESETS[variantName];
+    appearanceState.character = variantName;
+    if (options.applyPreset) {
+      setColors(preset.colors);
+      setHair(preset.hair);
+    }
+  }
+
   setOutfit(appearanceState.outfit);
   setHair(appearanceState.hair);
   applyColors(appearanceState.colors);
+  setCharacter(appearanceState.character);
 
   return {
     group,
@@ -1769,11 +1940,13 @@ function createAvatar(appearance = {}) {
     setColors,
     setOutfit,
     setHair,
+    setCharacter,
     setAppearance: (next) => {
       if (!next) return;
       if (next.colors) setColors(next.colors);
       if (next.outfit) setOutfit(next.outfit);
       if (next.hair) setHair(next.hair);
+      if (next.character) setCharacter(next.character);
     },
   };
 }
@@ -1782,6 +1955,15 @@ function setupUI() {
   joinInput.addEventListener('input', () => {
     joinInput.value = joinInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   });
+
+  if (joinToggleBtn && joinCard) {
+    joinToggleBtn.addEventListener('click', () => {
+      joinCard.classList.toggle('hidden');
+      if (!joinCard.classList.contains('hidden')) {
+        setTimeout(() => joinInput.focus(), 80);
+      }
+    });
+  }
 
   startButton.addEventListener('click', () => {
     uiState.awaitingStoryIntro = true;
@@ -1792,6 +1974,7 @@ function setupUI() {
     network.send('create_session', {
       displayName: randomSnowyName(),
       avatar: {
+        character: localState.character,
         colors: localState.avatarColors,
         outfit: localState.outfit,
         hair: localState.hair,
@@ -1812,6 +1995,7 @@ function setupUI() {
       code,
       displayName: randomSnowyName(),
       avatar: {
+        character: localState.character,
         colors: localState.avatarColors,
         outfit: localState.outfit,
         hair: localState.hair,
@@ -1881,6 +2065,24 @@ function setupUI() {
       }
     });
   }
+
+  if (hudCollapseBtn) {
+    hudCollapseBtn.addEventListener('click', () => {
+      hudPanel.classList.toggle('collapsed');
+    });
+  }
+
+  storyCharacterButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      selectCharacter(button.dataset.character, { applyPreset: true });
+    });
+  });
+
+  modalCharacterButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      selectCharacter(button.dataset.character, { applyPreset: true });
+    });
+  });
 
   radialButtons.forEach((button) => {
     button.addEventListener('pointerdown', (event) => event.stopPropagation());
@@ -1953,6 +2155,12 @@ function setupInput() {
   renderer.domElement.addEventListener('pointerdown', (event) => {
     closeRadialMenu();
     ensureAudioContext();
+    const zone = intersectDecorZone(event);
+    if (zone && beginThrowCharge(zone)) {
+      throwState.pointerId = event.pointerId;
+      renderer.domElement.setPointerCapture(event.pointerId);
+      return;
+    }
     dragState.active = true;
     dragState.moved = false;
     dragState.pointerId = event.pointerId;
@@ -1962,6 +2170,9 @@ function setupInput() {
   });
 
   renderer.domElement.addEventListener('pointermove', (event) => {
+    if (throwState.charging && event.pointerId === throwState.pointerId) {
+      return;
+    }
     if (!dragState.active || event.pointerId !== dragState.pointerId) return;
     const deltaX = event.clientX - dragState.lastX;
     const deltaY = event.clientY - dragState.lastY;
@@ -1975,6 +2186,11 @@ function setupInput() {
   });
 
   renderer.domElement.addEventListener('pointerup', (event) => {
+    if (throwState.charging && event.pointerId === throwState.pointerId) {
+      renderer.domElement.releasePointerCapture(event.pointerId);
+      finishThrowCharge();
+      return;
+    }
     if (event.pointerId !== dragState.pointerId) return;
     renderer.domElement.releasePointerCapture(event.pointerId);
     dragState.active = false;
@@ -1986,9 +2202,7 @@ function setupInput() {
       0.15,
       1.1,
     );
-    if (!dragState.moved) {
-      attemptDecorationPlacement(event);
-    } else {
+    if (dragState.moved) {
       autoFollowPaused = true;
       if (autoResumeTimeout) {
         clearTimeout(autoResumeTimeout);
@@ -1997,10 +2211,14 @@ function setupInput() {
         autoFollowPaused = false;
       }, AUTO_RESUME_DELAY_MS);
     }
+
     dragState.moved = false;
   });
 
   renderer.domElement.addEventListener('pointerleave', () => {
+    if (throwState.charging) {
+      finishThrowCharge(true);
+    }
     dragState.active = false;
   });
 
@@ -2193,6 +2411,7 @@ function placeDecoration(point, normal, options = {}) {
       rotation: { x: 0, y: Math.atan2(facingNormal.x, facingNormal.z) || 0, z: 0 },
       scale: 1,
     },
+    colors: Array.isArray(options.colors) ? options.colors : undefined,
   };
 
   network.send('place_decoration', decoration);
@@ -2307,10 +2526,18 @@ function createDecorationMesh(data) {
     case 'string_lights':
     default: {
       const group = new THREE.Group();
-      const material = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.6 });
-      for (let i = 0; i < 6; i += 1) {
+      const colors = Array.isArray(data.colors) && data.colors.length ? data.colors : null;
+      const bulbCount = colors ? colors.length : 6;
+      for (let i = 0; i < bulbCount; i += 1) {
+        const bulbColor = colors ? new THREE.Color(colors[i]) : color;
+        const material = new THREE.MeshStandardMaterial({
+          color: bulbColor,
+          emissive: bulbColor,
+          emissiveIntensity: 0.65,
+        });
         const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 12), material);
-        bulb.position.set(-1.5 + i * 0.6, 2.2 + Math.sin(i) * 0.2, 0);
+        const span = bulbCount > 1 ? i / (bulbCount - 1) : 0;
+        bulb.position.set(-1.5 + span * 3, 2.2 + Math.sin(i) * 0.2, 0);
         group.add(bulb);
       }
       mesh = group;
@@ -2332,7 +2559,12 @@ function sendAvatarUpdate() {
   };
   network.send('update_avatar', {
     transform,
-    avatar: { colors: localState.avatarColors, outfit: localState.outfit, hair: localState.hair },
+    avatar: {
+      colors: localState.avatarColors,
+      outfit: localState.outfit,
+      hair: localState.hair,
+      character: localState.character,
+    },
   });
 }
 
@@ -2341,7 +2573,31 @@ function animate() {
   const delta = clock.getDelta();
   elapsedTime += delta;
   updatePlayer(delta, elapsedTime);
+  updateLightStrand(delta, elapsedTime);
+  updateThrowCharge();
+  updateThrowEffects(delta);
+  updateSparkEffects(delta);
   updateSnow(delta);
+  highlightAccumulator += delta;
+  if (highlightAccumulator >= HIGHLIGHT_UPDATE_INTERVAL) {
+    updateDecorZoneHighlights(highlightAccumulator);
+    highlightAccumulator = 0;
+  }
+  collectibleAccumulator += delta;
+  if (collectibleAccumulator >= COLLECTIBLE_UPDATE_INTERVAL) {
+    updateCollectibles(collectibleAccumulator, elapsedTime);
+    collectibleAccumulator = 0;
+  }
+  pickupAccumulator += delta;
+  if (pickupAccumulator >= PICKUP_UPDATE_INTERVAL) {
+    updateBulbPickups(pickupAccumulator, elapsedTime);
+    pickupAccumulator = 0;
+  }
+  houseGlowAccumulator += delta;
+  if (houseGlowAccumulator >= HOUSE_GLOW_INTERVAL) {
+    updateHouseGlow(houseGlowAccumulator);
+    houseGlowAccumulator = 0;
+  }
   updateFootprints(delta);
   renderer.render(scene, camera);
 }
@@ -2388,6 +2644,7 @@ function updatePlayer(delta, elapsed) {
   if (strafeInput !== 0) moveVector.add(rightDir.clone().multiplyScalar(strafeInput));
 
   const isMoving = moveVector.lengthSq() > 0;
+  playerIsMoving = isMoving;
   if (isMoving) {
     const facing = moveVector.clone().normalize();
     localPlayer.group.position.add(facing.multiplyScalar(delta * 5));
@@ -2423,9 +2680,6 @@ function updatePlayer(delta, elapsed) {
   const desiredPosition = localPlayer.group.position.clone().add(offset);
   camera.position.lerp(desiredPosition, 0.08);
   camera.lookAt(cameraTarget);
-  updateDecorZoneHighlights(delta);
-  updateCollectibles(delta, elapsed);
-  updateHouseGlow(delta);
 }
 
 function updateSnow(delta) {
@@ -2487,6 +2741,299 @@ function updateFootprints(delta) {
     if (entry.life <= 0) {
       footstepGroup.remove(entry.mesh);
       footprints.splice(i, 1);
+    }
+  }
+}
+
+function updateLightStrand(delta, elapsed) {
+  if (!strandState.line) return;
+  strandState.swingPhase += delta * (playerIsMoving ? 3 : 1.4);
+  const sway = Math.sin(strandState.swingPhase * 2) * (playerIsMoving ? 0.2 : 0.08);
+  const sag = playerIsMoving ? 0.22 : 0.32;
+  const curve = new THREE.CubicBezierCurve3(
+    new THREE.Vector3(-0.45, 1.25, 0.35),
+    new THREE.Vector3(-0.15, 1 - sag, 0.75 + sway),
+    new THREE.Vector3(0.15, 1 - sag, 0.75 - sway),
+    new THREE.Vector3(0.45, 1.25, 0.35),
+  );
+  const samples = curve.getPoints(STRAND_SEGMENTS);
+  strandState.cachedPoints = samples;
+  const positions = strandState.line.geometry.attributes.position;
+  samples.forEach((point, index) => {
+    positions.setXYZ(index, point.x, point.y, point.z);
+  });
+  positions.needsUpdate = true;
+  strandState.line.geometry.computeBoundingSphere();
+
+  if (strandState.bulbMeshes.length) {
+    const socketCount = strandState.bulbMeshes.length;
+    for (let i = 0; i < socketCount; i += 1) {
+      const t = socketCount === 1 ? 0 : i / (socketCount - 1);
+      const point = curve.getPoint(t);
+      strandState.bulbMeshes[i].position.copy(point);
+    }
+  }
+}
+
+function initLightStrand() {
+  const group = new THREE.Group();
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array((STRAND_SEGMENTS + 1) * 3);
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const line = new THREE.Line(
+    geometry,
+    new THREE.LineBasicMaterial({ color: 0x1d1624, linewidth: 2, transparent: true, opacity: 0.85 }),
+  );
+  group.add(line);
+  const bulbMeshes = [];
+  const socketMaterials = [];
+  for (let i = 0; i < STRAND_SOCKET_COUNT; i += 1) {
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x1d1c2d,
+      emissive: 0x000000,
+      emissiveIntensity: 0,
+      roughness: 0.4,
+      metalness: 0.05,
+    });
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 10), material);
+    bulb.position.set(0, 1.1, 0.5);
+    group.add(bulb);
+    bulbMeshes.push(bulb);
+    socketMaterials.push(material);
+  }
+  localPlayer.group.add(group);
+  strandState.group = group;
+  strandState.line = line;
+  strandState.bulbMeshes = bulbMeshes;
+  strandState.socketMaterials = socketMaterials;
+}
+
+function initStrandUI() {
+  if (!strandSocketsEl) return;
+  strandSocketsEl.innerHTML = '';
+  strandState.uiDots = [];
+  for (let i = 0; i < STRAND_SOCKET_COUNT; i += 1) {
+    const dot = document.createElement('span');
+    dot.className = 'socket empty';
+    strandSocketsEl.appendChild(dot);
+    strandState.uiDots.push(dot);
+  }
+  updateStrandUI();
+}
+
+function isStrandFull() {
+  return strandState.sockets.every((slot) => slot);
+}
+
+function addBulbToStrand(color) {
+  if (!color) return false;
+  let index = strandState.sockets.findIndex((slot) => slot === null);
+  if (index === -1) {
+    strandState.sockets.shift();
+    strandState.sockets.push(color);
+    index = strandState.sockets.length - 1;
+    strandState.socketMaterials.forEach((_, idx) => updateStrandVisual(idx));
+  } else {
+    strandState.sockets[index] = color;
+    updateStrandVisual(index);
+  }
+  updateStrandUI();
+  const sparkOrigin = tempVecA.set(0, 1.2, 0.55);
+  localPlayer.group.localToWorld(sparkOrigin);
+  spawnStrandSpark(sparkOrigin, color);
+  return true;
+}
+
+function consumeStrandBulbs() {
+  for (let i = 0; i < strandState.sockets.length; i += 1) {
+    strandState.sockets[i] = null;
+    updateStrandVisual(i);
+  }
+  updateStrandUI();
+}
+
+function updateStrandVisual(index) {
+  const material = strandState.socketMaterials[index];
+  if (!material) return;
+  const color = strandState.sockets[index];
+  if (color) {
+    material.color.set(color);
+    material.emissive.set(color);
+    material.emissiveIntensity = 0.8;
+  } else {
+    material.color.set(0x1d1c2d);
+    material.emissive.set(0x000000);
+    material.emissiveIntensity = 0;
+  }
+}
+
+function updateStrandUI() {
+  if (!bulbCountLabel) return;
+  const filled = strandState.sockets.filter(Boolean).length;
+  bulbCountLabel.textContent = `${filled}/${STRAND_SOCKET_COUNT}`;
+  strandState.uiDots.forEach((dot, index) => {
+    if (!dot) return;
+    const color = strandState.sockets[index];
+    if (color) {
+      dot.style.setProperty('--socket-color', color);
+      dot.classList.remove('empty');
+    } else {
+      dot.classList.add('empty');
+      dot.style.removeProperty('--socket-color');
+    }
+  });
+}
+
+function updateBulbPickups(delta, elapsed) {
+  for (let i = bulbPickups.length - 1; i >= 0; i -= 1) {
+    const pickup = bulbPickups[i];
+    if (pickup.collected) continue;
+    pickup.mesh.rotation.y += delta * 0.8;
+    pickup.mesh.position.y = pickup.baseY + Math.sin(elapsed * 3 + pickup.wobbleOffset) * 0.18;
+    const distance = pickup.mesh.position.distanceTo(localPlayer.group.position);
+    if (distance < 1.6) {
+      addBulbToStrand(pickup.color);
+      pickup.collected = true;
+      scene.remove(pickup.mesh);
+      bulbPickups.splice(i, 1);
+      playChime([900, 1120]);
+      spawnSingleBulb(pickup.pathAreas, pickup.cabinBounds);
+    }
+  }
+}
+
+function spawnStrandSpark(position, color) {
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ color, transparent: true, opacity: 0.9 }),
+  );
+  sprite.scale.set(0.5, 0.5, 0.5);
+  sprite.position.copy(position);
+  scene.add(sprite);
+  sparkEffects.push({ sprite, start: performance.now(), duration: 600 });
+}
+
+function updateSparkEffects(delta) {
+  const now = performance.now();
+  for (let i = sparkEffects.length - 1; i >= 0; i -= 1) {
+    const effect = sparkEffects[i];
+    const t = Math.min(1, (now - effect.start) / effect.duration);
+    effect.sprite.material.opacity = 1 - t;
+    const scale = THREE.MathUtils.lerp(0.5, 1.2, t);
+    effect.sprite.scale.set(scale, scale, scale);
+    effect.sprite.position.y += delta * 0.6;
+    if (t >= 1) {
+      scene.remove(effect.sprite);
+      sparkEffects.splice(i, 1);
+    }
+  }
+}
+
+function beginThrowCharge(zone) {
+  if (!localState.sessionCode) return false;
+  if (!isStrandFull()) {
+    showToast('Fill your strand with bulbs to decorate!');
+    return false;
+  }
+  throwState.charging = true;
+  throwState.zone = zone;
+  throwState.startTime = performance.now();
+  throwState.progress = 0;
+  if (throwMeterEl) {
+    throwMeterEl.classList.remove('hidden');
+  }
+  if (throwMeterFill) {
+    throwMeterFill.style.transform = 'scaleX(0)';
+  }
+  if (throwMeterLabel) {
+    throwMeterLabel.textContent = 'Charging lights…';
+  }
+  return true;
+}
+
+function updateThrowCharge() {
+  if (!throwState.charging) return;
+  const elapsed = performance.now() - throwState.startTime;
+  const progress = Math.min(1, elapsed / THROW_FULL_DURATION);
+  throwState.progress = progress;
+  if (throwMeterFill) {
+    throwMeterFill.style.transform = `scaleX(${progress})`;
+  }
+  if (throwMeterLabel) {
+    if (progress >= 1) {
+      throwMeterLabel.textContent = 'Release to launch!';
+    } else if (progress >= THROW_MIN_DURATION / THROW_FULL_DURATION) {
+      throwMeterLabel.textContent = 'Almost ready…';
+    } else {
+      throwMeterLabel.textContent = 'Charging lights…';
+    }
+  }
+}
+
+function finishThrowCharge(forceCancel = false) {
+  if (!throwState.charging) return;
+  const zone = throwState.zone;
+  const progress = throwState.progress;
+  throwState.charging = false;
+  throwState.zone = null;
+  throwState.pointerId = null;
+  if (throwMeterEl) {
+    throwMeterEl.classList.add('hidden');
+  }
+  if (forceCancel) {
+    return;
+  }
+  if (progress < THROW_MIN_DURATION / THROW_FULL_DURATION) {
+    showToast('Hold a bit longer to throw the lights!');
+    return;
+  }
+  performLightThrow(zone);
+}
+
+function performLightThrow(zone) {
+  const pattern = strandState.sockets.map((color) => color || '#ffecc3');
+  const origin = tempVecA.set(0, 1.15, 0.7);
+  localPlayer.group.localToWorld(origin);
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0xfff4d6, transparent: true, opacity: 1 }),
+  );
+  mesh.position.copy(origin);
+  scene.add(mesh);
+  throwEffects.push({
+    mesh,
+    from: origin.clone(),
+    to: zone.anchor.clone(),
+    start: performance.now(),
+    duration: 650,
+    zone,
+    placed: false,
+    pattern,
+  });
+  consumeStrandBulbs();
+}
+
+function updateThrowEffects(delta) {
+  const now = performance.now();
+  for (let i = throwEffects.length - 1; i >= 0; i -= 1) {
+    const effect = throwEffects[i];
+    const t = Math.min(1, (now - effect.start) / effect.duration);
+    tempVecB.copy(effect.from).lerp(effect.to, t);
+    effect.mesh.position.copy(tempVecB);
+    effect.mesh.material.opacity = 1 - t;
+    effect.mesh.scale.setScalar(THREE.MathUtils.lerp(1, 0.1, t));
+    if (!effect.placed && t >= 0.95) {
+      placeDecoration(effect.zone.anchor, effect.zone.normal, {
+        typeId: 'string_lights',
+        color: '#ffecc3',
+        colors: effect.pattern,
+        cabinId: effect.zone.houseId,
+        glow: 0.95,
+      });
+      effect.placed = true;
+    }
+    if (t >= 1) {
+      scene.remove(effect.mesh);
+      throwEffects.splice(i, 1);
     }
   }
 }
