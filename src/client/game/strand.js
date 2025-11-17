@@ -4,6 +4,7 @@ import {
   STRAND_SEGMENTS,
   BULB_COLORS,
   BULB_PICKUP_COUNT,
+  BULB_HOVER_OFFSET,
   THROW_FULL_DURATION,
   THROW_MIN_DURATION,
   DROP_GRAVITY,
@@ -14,11 +15,30 @@ import {
   strandBar,
   bulbCountLabel,
   strandSocketsEl,
+  dropButton,
   throwMeterEl,
   throwMeterFill,
   throwMeterLabel,
 } from '../components/domElements.js';
 import { sampleTerrainHeight, boostHouseGlow } from './world.js';
+
+let cachedGlowTexture = null;
+function getGlowTexture() {
+  if (cachedGlowTexture) return cachedGlowTexture;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, size * 0.05, size / 2, size / 2, size * 0.5);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+  gradient.addColorStop(0.45, 'rgba(255, 255, 255, 0.3)');
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  cachedGlowTexture = new THREE.CanvasTexture(canvas);
+  cachedGlowTexture.needsUpdate = true;
+  return cachedGlowTexture;
+}
 
 export function initStrand(context) {
   if (strandBar) {
@@ -33,14 +53,25 @@ export function updateLightStrand(context, delta, elapsed) {
   const { strandState, THREE: three, playerIsMoving } = context;
   if (!strandState.line) return;
   strandState.swingPhase += delta * (playerIsMoving ? 3 : 1.4);
-  const sway = Math.sin(strandState.swingPhase * 2) * (playerIsMoving ? 0.2 : 0.08);
-  const sag = playerIsMoving ? 0.22 : 0.32;
-  const curve = new three.CubicBezierCurve3(
-    new THREE.Vector3(-0.45, 1.25, 0.35),
-    new THREE.Vector3(-0.15, 1 - sag, 0.75 + sway),
-    new THREE.Vector3(0.15, 1 - sag, 0.75 - sway),
-    new THREE.Vector3(0.45, 1.25, 0.35),
-  );
+  const coilRadius = 1.05;
+  const axisLength = 0.6;
+  const loopCount = 2;
+  const palmAnchor = new THREE.Vector3(0.86, 1.38, 0.5);
+  const axisStart = palmAnchor.x + 0.15;
+  const centerZ = 0.5;
+  const centerY = 1.28;
+  const points = [palmAnchor.clone()];
+  const helixSegments = STRAND_SEGMENTS;
+  for (let i = 0; i <= helixSegments; i += 1) {
+    const t = i / helixSegments;
+    const angle = t * Math.PI * 2 * loopCount;
+    const x = axisStart + t * axisLength;
+    const y = centerY + Math.cos(angle) * coilRadius * 0.55 + Math.sin(elapsed * 1 + t * 4) * 0.05;
+    const z = centerZ + Math.sin(angle) * coilRadius;
+    points.push(new THREE.Vector3(x, y, z));
+  }
+  points.push(new THREE.Vector3(axisStart + axisLength + 0.1, 1.02, centerZ - 0.12));
+  const curve = new three.CatmullRomCurve3(points, false, 'catmullrom', 0.4);
   const samples = curve.getPoints(STRAND_SEGMENTS);
   strandState.cachedPoints = samples;
   const positions = strandState.line.geometry.attributes.position;
@@ -49,11 +80,24 @@ export function updateLightStrand(context, delta, elapsed) {
   });
   positions.needsUpdate = true;
   strandState.line.geometry.computeBoundingSphere();
+  if (strandState.tubeMesh) {
+    strandState.tubeMesh.geometry.dispose();
+    strandState.tubeMesh.geometry = new three.TubeGeometry(
+      curve,
+      STRAND_SEGMENTS * 2,
+      0.05,
+      10,
+      false,
+    );
+  }
 
   if (strandState.bulbMeshes.length) {
     const socketCount = strandState.bulbMeshes.length;
     for (let i = 0; i < socketCount; i += 1) {
-      const t = socketCount === 1 ? 0 : i / (socketCount - 1);
+      const t =
+        socketCount === 1
+          ? 0.5
+          : Math.min(0.98, Math.max(0.02, (i + 0.3) / (socketCount + 0.3)));
       const point = curve.getPoint(t);
       strandState.bulbMeshes[i].position.copy(point);
     }
@@ -66,37 +110,76 @@ function initLightStrand(context) {
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array((STRAND_SEGMENTS + 1) * 3);
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const line = new THREE.Line(
-    geometry,
-    new THREE.LineBasicMaterial({
-      color: 0x1d1624,
-      linewidth: 2,
-      transparent: true,
-      opacity: 0.85,
-    }),
-  );
+  const lineMaterial = new THREE.LineBasicMaterial({
+    color: 0x1f8b44,
+    linewidth: 2,
+    transparent: true,
+    opacity: 0.85,
+  });
+  const line = new THREE.Line(geometry, lineMaterial);
   group.add(line);
+  const initialCurve = new THREE.CatmullRomCurve3(
+    [
+      new THREE.Vector3(0.2, 1.32, 0.45),
+      new THREE.Vector3(0.6, 1.18, 0.75),
+      new THREE.Vector3(0.1, 1.02, 0.25),
+    ],
+    false,
+    'catmullrom',
+    0.5,
+  );
+  const tubeGeometry = new THREE.TubeGeometry(initialCurve, STRAND_SEGMENTS * 2, 0.05, 10, false);
+  const tubeMaterial = new THREE.MeshStandardMaterial({
+    color: 0x1f8b44,
+    roughness: 0.65,
+    metalness: 0.15,
+  });
+  const tubeMesh = new THREE.Mesh(tubeGeometry, tubeMaterial);
+  group.add(tubeMesh);
+  const glowMap = getGlowTexture();
   const bulbMeshes = [];
   const socketMaterials = [];
+  const socketAuras = [];
+  const socketLights = [];
   for (let i = 0; i < STRAND_SOCKET_COUNT; i += 1) {
     const material = new THREE.MeshStandardMaterial({
-      color: 0x1d1c2d,
+      color: 0x1f8b44,
       emissive: 0x000000,
       emissiveIntensity: 0,
       roughness: 0.4,
       metalness: 0.05,
     });
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 10), material);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 14), material);
     bulb.position.set(0, 1.1, 0.5);
+    const aura = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: glowMap,
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    aura.scale.set(0.5, 0.5, 0.5);
+    const light = new THREE.PointLight(0xffffff, 0, 2.5, 2);
+    light.position.set(0, 0, 0);
+    bulb.add(aura);
+    bulb.add(light);
     group.add(bulb);
     bulbMeshes.push(bulb);
     socketMaterials.push(material);
+    socketAuras.push(aura);
+    socketLights.push(light);
   }
   localPlayer.group.add(group);
   strandState.group = group;
   strandState.line = line;
+  strandState.tubeMesh = tubeMesh;
   strandState.bulbMeshes = bulbMeshes;
   strandState.socketMaterials = socketMaterials;
+  strandState.socketAuras = socketAuras;
+  strandState.socketLights = socketLights;
 }
 
 function initStrandUI(context) {
@@ -145,16 +228,34 @@ export function consumeStrandBulbs(context) {
 function updateStrandVisual(context, index) {
   const { strandState } = context;
   const material = strandState.socketMaterials[index];
+  const aura = strandState.socketAuras[index];
+  const light = strandState.socketLights[index];
   if (!material) return;
   const color = strandState.sockets[index];
   if (color) {
     material.color.set(color);
     material.emissive.set(color);
-    material.emissiveIntensity = 0.8;
+    material.emissiveIntensity = 1.35;
+    if (aura) {
+      aura.material.color.set(color);
+      aura.material.opacity = 1;
+      aura.visible = true;
+    }
+    if (light) {
+      light.color.set(color);
+      light.intensity = 0.9;
+    }
   } else {
-    material.color.set(0x1d1c2d);
+    material.color.set(0x1f8b44);
     material.emissive.set(0x000000);
     material.emissiveIntensity = 0;
+    if (aura) {
+      aura.visible = false;
+      aura.material.opacity = 0;
+    }
+    if (light) {
+      light.intensity = 0;
+    }
   }
 }
 
@@ -163,6 +264,9 @@ export function updateStrandUI(context) {
   if (!bulbCountLabel) return;
   const filled = strandState.sockets.filter(Boolean).length;
   bulbCountLabel.textContent = `${filled}/${STRAND_SOCKET_COUNT}`;
+  if (dropButton) {
+    dropButton.disabled = filled === 0;
+  }
   strandState.uiDots.forEach((dot, index) => {
     if (!dot) return;
     const color = strandState.sockets[index];
@@ -194,6 +298,26 @@ export function updateBulbPickups(context, delta, elapsed) {
       bulbPickups.splice(i, 1);
       continue;
     }
+    const aura = pickup.mesh.userData?.aura;
+    const reflection = pickup.mesh.userData?.reflection;
+    const light = pickup.mesh.userData?.light;
+    if (aura || light || reflection) {
+      const glowPulse = 0.7 + Math.sin(elapsed * 2.5 + pickup.wobbleOffset) * 0.25;
+      if (aura) {
+        aura.material.opacity = 0.4 + glowPulse * 0.45;
+        const scale = 1.3 + glowPulse * 0.9;
+        aura.scale.set(scale, scale, scale);
+      }
+      if (light) {
+        light.intensity = 0.7 + glowPulse * 1.1;
+        light.distance = 4.6 + glowPulse * 1.6;
+      }
+      if (reflection) {
+        reflection.material.opacity = 0.2 + glowPulse * 0.3;
+        reflection.scale.setScalar(0.7 + glowPulse * 0.5);
+        reflection.position.y = pickup.baseY - pickup.mesh.position.y - 0.02;
+      }
+    }
     if (pickup.isDropping) {
       pickup.dropVelocity = pickup.dropVelocity || new THREE.Vector3(0, 0, 0);
       pickup.dropVelocity.y -= DROP_GRAVITY * delta;
@@ -214,17 +338,19 @@ export function updateBulbPickups(context, delta, elapsed) {
       !pickup.collected &&
       (!pickup.immuneUntil || now >= pickup.immuneUntil)
     ) {
-      if (!pickup.requireExitBeforeCollect || distance > 1.2) {
-        pickup.collected = true;
-        if (!isStrandFull(context)) {
-          addBulbToStrand(context, pickup.color);
-          playChime([660, 880]);
-        } else if (!context.lastStrandFullWarning || now - context.lastStrandFullWarning > 1600) {
+      if (isStrandFull(context)) {
+        if (!context.lastStrandFullWarning || now - context.lastStrandFullWarning > 1600) {
           context.lastStrandFullWarning = now;
           if (context.showToast) {
             context.showToast('Your strand is full! Time to decorate ✨');
           }
         }
+        continue;
+      }
+      if (!pickup.requireExitBeforeCollect || distance > 1.2) {
+        pickup.collected = true;
+        addBulbToStrand(context, pickup.color);
+        playChime([660, 880]);
         context.scene.remove(pickup.mesh);
         bulbPickups.splice(i, 1);
       }
@@ -294,6 +420,9 @@ export function beginThrowCharge(context, zone) {
   if (throwMeterEl) {
     throwMeterEl.classList.remove('hidden');
   }
+  if (throwMeterFill) {
+    throwMeterFill.style.transform = 'scaleX(0)';
+  }
   if (throwMeterLabel) {
     throwMeterLabel.textContent = 'Charging lights…';
   }
@@ -311,7 +440,7 @@ export function updateThrowCharge(context) {
   }
   if (throwMeterLabel) {
     if (progress >= 1) {
-      throwMeterLabel.textContent = 'Release to launch!';
+      throwMeterLabel.textContent = 'Release to place lights!';
     } else if (progress >= THROW_MIN_DURATION / THROW_FULL_DURATION) {
       throwMeterLabel.textContent = 'Almost ready…';
     } else {
@@ -336,7 +465,7 @@ export function finishThrowCharge(context, forceCancel = false) {
   }
   if (progress < THROW_MIN_DURATION / THROW_FULL_DURATION) {
     if (context.showToast) {
-      context.showToast('Hold a bit longer to throw the lights!');
+      context.showToast('Hold a bit longer, then release to place!');
     }
     return;
   }
@@ -406,8 +535,8 @@ export function updateDropProjectiles(context) {
       dropProjectiles.splice(i, 1);
       const spawnPoint = effect.end.clone();
       const groundY = sampleTerrainHeight(context, spawnPoint);
-      const baseY = groundY + 0.04;
-      const restHeight = baseY + 0.16;
+      const baseY = groundY + BULB_HOVER_OFFSET;
+      const restHeight = baseY;
       spawnPoint.y = restHeight;
       effect.mesh.position.copy(spawnPoint);
       bulbPickups.push({
@@ -470,7 +599,6 @@ export function dropStrandBulb(context) {
   const control = origin.clone().lerp(landing, 0.5);
   control.y = Math.max(origin.y, landing.y) + 1.2;
   const projectile = createBulbPickup(color);
-  projectile.scale.setScalar(0.7);
   context.scene.add(projectile);
   dropProjectiles.push({
     mesh: projectile,
@@ -501,27 +629,63 @@ function spawnDropSpark(context, position, color) {
 }
 
 function createBulbPickup(color) {
-  const bulb = new THREE.Mesh(
-    new THREE.SphereGeometry(0.16, 12, 12),
+  const group = new THREE.Group();
+  const glowMap = getGlowTexture();
+  const glass = new THREE.Mesh(
+    new THREE.SphereGeometry(0.16, 18, 18),
     new THREE.MeshStandardMaterial({
       color,
       emissive: color,
-      emissiveIntensity: 0.8,
-      roughness: 0.3,
-      metalness: 0.1,
+      emissiveIntensity: 1.2,
+      roughness: 0.25,
+      metalness: 0.08,
     }),
   );
   const cap = new THREE.Mesh(
     new THREE.CylinderGeometry(0.07, 0.09, 0.14, 8),
     new THREE.MeshStandardMaterial({
-      color: 0xd0c6b8,
-      roughness: 0.4,
-      metalness: 0.8,
+      color: 0x1f8b44,
+      roughness: 0.45,
+      metalness: 0.25,
     }),
   );
   cap.position.y = 0.18;
-  bulb.add(cap);
-  return bulb;
+  const aura = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: glowMap,
+      color,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  );
+  aura.scale.set(1.4, 1.4, 1.4);
+  const reflection = new THREE.Mesh(
+    new THREE.CircleGeometry(0.55, 32),
+    new THREE.MeshBasicMaterial({
+      map: glowMap,
+      color,
+      transparent: true,
+      opacity: 0.35,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  reflection.rotation.x = -Math.PI / 2;
+  reflection.position.y = -BULB_HOVER_OFFSET - 0.02;
+  const light = new THREE.PointLight(new THREE.Color(color), 1.2, 4.2, 2);
+  light.position.set(0, 0, 0);
+  group.add(glass);
+  group.add(cap);
+  group.add(aura);
+  group.add(reflection);
+  group.add(light);
+  group.userData.aura = aura;
+  group.userData.light = light;
+  group.userData.reflection = reflection;
+  return group;
 }
 
 export function spawnLightPickups(context) {
@@ -553,8 +717,9 @@ export function spawnSingleBulb(context, options = {}) {
   }
   const terrainY = sampleTerrainHeight(context, position);
   position.y = terrainY + 0.02;
-  const baseY = options.baseY ?? position.y;
-  const restHeight = options.restHeight ?? baseY + 0.12;
+  const hoverBase = terrainY + BULB_HOVER_OFFSET;
+  const baseY = options.baseY ?? hoverBase;
+  const restHeight = options.restHeight ?? baseY;
   const dropHeight =
     options.dropHeight && options.dropHeight > restHeight ? options.dropHeight : restHeight;
   pickup.position.copy(position);
@@ -640,4 +805,3 @@ export function placeDecoration(context, point, normal, options = {}) {
   playChime();
   boostHouseGlow(context, cabinId);
 }
-

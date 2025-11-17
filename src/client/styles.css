@@ -387,6 +387,34 @@ input[type='color'] {
   gap: 6px;
 }
 
+.strand-chip .strand-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.strand-chip .strand-action-btn {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff4d4;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.strand-chip .strand-action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px);
+}
+
+.strand-chip .strand-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .strand-chip .strand-count {
   font-weight: 600;
   color: #fff7d9;
@@ -400,6 +428,49 @@ input[type='color'] {
   border: 1px solid rgba(255, 255, 255, 0.35);
   background: rgba(255, 255, 255, 0.1);
   box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.4);
+}
+
+.throw-meter {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 20px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(13, 17, 32, 0.92);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  width: min(320px, 80vw);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 6;
+}
+
+.throw-meter .meter-label {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffe9c6;
+  text-align: center;
+}
+
+.throw-meter .meter-track {
+  width: 100%;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.throw-meter .meter-track .fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ffc964, #ff7eb9);
+  transform-origin: left center;
+  transform: scaleX(0);
 }
 
 #toast {

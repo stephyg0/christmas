@@ -24,6 +24,7 @@ import {
   customizeCloseBtn,
   bulbCountLabel,
   strandBar,
+  dropButton,
   storyCharacterButtons,
   modalCharacterButtons,
   joinToggleBtn,
@@ -182,6 +183,10 @@ export function setupUI(context) {
     hudCollapseBtn.addEventListener('click', () => {
       hudPanel.classList.toggle('collapsed');
     });
+  }
+
+  if (dropButton) {
+    dropButton.addEventListener('click', () => dropStrandBulb(context));
   }
 
   storyCharacterButtons.forEach((button) => {

@@ -1,5 +1,23 @@
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
+let decorationGlowTexture = null;
+function getDecorationGlowTexture() {
+  if (decorationGlowTexture) return decorationGlowTexture;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, size * 0.08, size / 2, size / 2, size * 0.5);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.35, 'rgba(255,255,255,0.4)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  decorationGlowTexture = new THREE.CanvasTexture(canvas);
+  decorationGlowTexture.needsUpdate = true;
+  return decorationGlowTexture;
+}
+
 export function initWorld(context) {
   const village = buildVillage(context);
   context.placementSurfaces.push(village.ground, ...village.cabins);
@@ -1368,16 +1386,52 @@ function createDecorationMesh(data) {
       const group = new THREE.Group();
       const colors = Array.isArray(data.colors) && data.colors.length ? data.colors : null;
       const bulbCount = colors ? colors.length : 6;
+      const glowMap = getDecorationGlowTexture();
+      const stringSpan = 4.4;
+      const halfSpan = stringSpan / 2;
+      const baseHeight = 2.35;
+      const sagAmount = 0.35;
+      const points = [
+        new THREE.Vector3(-halfSpan, baseHeight, 0),
+        new THREE.Vector3(0, baseHeight - sagAmount, 0),
+        new THREE.Vector3(halfSpan, baseHeight, 0),
+      ];
+      const strandCurve = new THREE.CatmullRomCurve3(points);
+      const strandGeometry = new THREE.TubeGeometry(strandCurve, 40, 0.06, 10, false);
+      const strandMaterial = new THREE.MeshStandardMaterial({
+        color: 0x1f8b44,
+        roughness: 0.8,
+        metalness: 0.1,
+      });
+      const strandMesh = new THREE.Mesh(strandGeometry, strandMaterial);
+      group.add(strandMesh);
       for (let i = 0; i < bulbCount; i += 1) {
-        const bulbColor = colors ? new THREE.Color(colors[i]) : color;
+        const bulbColor = colors ? new THREE.Color(colors[i]) : color.clone ? color.clone() : new THREE.Color(color);
         const material = new THREE.MeshStandardMaterial({
           color: bulbColor,
           emissive: bulbColor,
-          emissiveIntensity: 0.65,
+          emissiveIntensity: 1.1,
         });
         const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 12), material);
-        const span = bulbCount > 1 ? i / (bulbCount - 1) : 0;
-        bulb.position.set(-1.5 + span * 3, 2.2 + Math.sin(i) * 0.2, 0);
+        const spanT = bulbCount > 1 ? i / (bulbCount - 1) : 0.5;
+        const x = -halfSpan + spanT * stringSpan;
+        const y = baseHeight - Math.sin(spanT * Math.PI) * sagAmount;
+        bulb.position.set(x, y, 0);
+        const halo = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: glowMap,
+            color: bulbColor,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        halo.scale.set(0.9, 0.9, 0.9);
+        bulb.add(halo);
+        const light = new THREE.PointLight(bulbColor, 0.9, 4, 2.5);
+        light.position.copy(bulb.position);
+        group.add(light);
         group.add(bulb);
       }
       mesh = group;

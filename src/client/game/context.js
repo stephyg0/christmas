@@ -100,8 +100,11 @@ export function createGameContext() {
     sockets: Array(STRAND_SOCKET_COUNT).fill(null),
     group: null,
     line: null,
+    tubeMesh: null,
     bulbMeshes: [],
     socketMaterials: [],
+    socketAuras: [],
+    socketLights: [],
     uiDots: [],
     swingPhase: 0,
     cachedPoints: [],
@@ -216,4 +219,3 @@ export function createGameContext() {
     },
   };
 }
-

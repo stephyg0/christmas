@@ -38,3 +38,4 @@ export const joinToggleBtn = document.getElementById('join-toggle');
 export const joinCard = document.getElementById('join-card');
 export const hudCollapseBtn = document.getElementById('hud-collapse');
 export const strandSocketsEl = document.getElementById('strand-sockets');
+export const dropButton = document.getElementById('drop-bulb');

@@ -6,7 +6,8 @@ export const STRAND_SOCKET_COUNT = 8;
 export const STRAND_SEGMENTS = 12;
 
 export const BULB_COLORS = ['#ff9aa0', '#ffe48f', '#a2f2cb', '#93d0ff', '#f7b6ff', '#fff4c8'];
-export const BULB_PICKUP_COUNT = 20;
+export const BULB_PICKUP_COUNT = 60;
+export const BULB_HOVER_OFFSET = 0.75;
 
 export const THROW_FULL_DURATION = 900;
 export const THROW_MIN_DURATION = 400;
@@ -36,4 +37,3 @@ export const CHARACTER_PRESETS = {
     label: 'Forrest',
   },
 };
-
