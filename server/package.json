@@ -1,0 +1,19 @@
+{
+  "name": "frostfall-haven-server",
+  "version": "1.0.0",
+  "description": "Cozy online Christmas village WebSocket server.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "uuid": "^9.0.1",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  }
+}

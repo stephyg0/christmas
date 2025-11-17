@@ -1,0 +1,9 @@
+{
+  "name": "frostfall-haven",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "npm --prefix server install && npm --prefix server run dev",
+    "start": "npm --prefix server install && npm --prefix server start"
+  }
+}
