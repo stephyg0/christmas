@@ -278,6 +278,7 @@ function handleDecorationUpdate(ws, mutationType, data) {
     color: data?.color || '#fff8e7',
     glow: data?.glow ?? 0.5,
     cabinId: data?.cabinId || 'cabin-a',
+    colors: Array.isArray(data?.colors) ? [...data.colors] : undefined,
   };
 
   if (mutationType === 'place_decoration') {
