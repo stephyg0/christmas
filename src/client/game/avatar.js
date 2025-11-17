@@ -1,4 +1,6 @@
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import * as SkeletonUtilsModule from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { CHARACTER_PRESETS } from '../constants/game.js';
 import {
   outfitColorInput,
@@ -9,6 +11,53 @@ import {
   modalCharacterButtons,
 } from '../components/domElements.js';
 import { upsertDecoration } from './world.js';
+
+const gltfLoader = new GLTFLoader();
+const SkeletonUtils =
+  SkeletonUtilsModule.SkeletonUtils ||
+  SkeletonUtilsModule.default ||
+  SkeletonUtilsModule;
+
+const CHARACTER_MODEL_CONFIGS = {
+  steph: {
+    url: new URL('../assets/character/steph.glb', import.meta.url).href,
+    targetHeight: 4.2,
+    yOffset: 1.2,
+    zOffset: 0.15,
+    emissiveBoost: 1.35,
+    colorBoost: 1.15,
+    lightIntensity: 2.4,
+    lightColor: 0xfff3d6,
+  },
+  forrest: {
+    url: new URL('../assets/character/forrest.glb', import.meta.url).href,
+    targetHeight: 4.2,
+    yOffset: 1.1,
+    zOffset: 0.1,
+    emissiveBoost: 1.15,
+    colorBoost: 1.1,
+    lightIntensity: 2.0,
+    lightColor: 0xe9f5ff,
+  },
+};
+
+const characterModelPromises = new Map();
+
+function loadCharacterModel(character) {
+  const config = CHARACTER_MODEL_CONFIGS[character];
+  if (!config) {
+    return Promise.reject(new Error(`No GLB configured for ${character}`));
+  }
+  if (!characterModelPromises.has(character)) {
+    characterModelPromises.set(
+      character,
+      new Promise((resolve, reject) => {
+        gltfLoader.load(config.url, (gltf) => resolve(gltf.scene), undefined, reject);
+      }),
+    );
+  }
+  return characterModelPromises.get(character);
+}
 
 export function normalizeAvatarAppearance(avatar = {}) {
   const character = CHARACTER_PRESETS[avatar.character] ? avatar.character : 'steph';
@@ -261,6 +310,97 @@ export function createAvatar(appearance = {}) {
     hairGroup.add(variant);
   });
 
+  const baseChildren = [...group.children];
+  let externalModelInstance = null;
+  let externalModelKey = null;
+  let externalLoadToken = 0;
+  let externalFrontLight = null;
+
+  function setBaseVisibility(visible) {
+    baseChildren.forEach((child) => {
+      child.visible = visible;
+    });
+  }
+
+  function hideExternalModel() {
+    if (externalModelInstance && externalModelInstance.parent === group) {
+      group.remove(externalModelInstance);
+    }
+    if (externalFrontLight && externalFrontLight.parent) {
+      externalFrontLight.parent.remove(externalFrontLight);
+    }
+    externalModelInstance = null;
+    externalModelKey = null;
+    externalFrontLight = null;
+    setBaseVisibility(true);
+  }
+
+  function showExternalModel(character) {
+    const config = CHARACTER_MODEL_CONFIGS[character];
+    if (!config) {
+      hideExternalModel();
+      return;
+    }
+    const loadToken = ++externalLoadToken;
+    setBaseVisibility(false);
+    loadCharacterModel(character)
+      .then((sceneTemplate) => {
+        if (loadToken !== externalLoadToken) return;
+        if (externalModelInstance && externalModelInstance.parent === group) {
+          group.remove(externalModelInstance);
+        }
+        const cloned = SkeletonUtils.clone(sceneTemplate);
+        cloned.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            if (child.material) {
+              child.material = child.material.clone();
+              if (child.material.emissive) {
+                child.material.emissiveIntensity =
+                  (child.material.emissiveIntensity || 0) + (config.emissiveBoost || 0.8);
+                const boostedColor = child.material.emissive.clone().multiplyScalar(config.colorBoost || 1);
+                child.material.emissive.copy(boostedColor);
+                child.material.toneMapped = false;
+              }
+              const baseColor = child.material.color;
+              if (baseColor && config.colorBoost) {
+                baseColor.multiplyScalar(config.colorBoost);
+              }
+            }
+          }
+        });
+        const bounds = new THREE.Box3().setFromObject(cloned);
+        const center = bounds.getCenter(new THREE.Vector3());
+        const size = bounds.getSize(new THREE.Vector3());
+        cloned.position.sub(center);
+        cloned.position.y -= bounds.min.y;
+        const targetHeight = config.targetHeight || 3.8;
+        const scale = targetHeight / size.y;
+        cloned.scale.setScalar(scale);
+        cloned.position.z += config.zOffset || 0;
+        cloned.position.y += config.yOffset || 0;
+        externalModelInstance = cloned;
+        externalModelKey = character;
+        group.add(cloned);
+
+        if (externalFrontLight && externalFrontLight.parent) {
+          externalFrontLight.parent.remove(externalFrontLight);
+        }
+        const lightIntensity = config.lightIntensity || 1.8;
+        const lightColor = new THREE.Color(config.lightColor || 0xfff5da);
+        externalFrontLight = new THREE.PointLight(lightColor, lightIntensity, 7.5, 2);
+        externalFrontLight.position.set(0, (targetHeight || 4) * 0.55, 1.05);
+        externalFrontLight.castShadow = false;
+        cloned.add(externalFrontLight);
+
+      })
+      .catch((error) => {
+        console.error(`Failed to load ${character} GLB`, error);
+        hideExternalModel();
+      });
+  }
+
   const appearanceState = {
     colors: { ...config.colors },
     outfit: config.outfit,
@@ -290,10 +430,23 @@ export function createAvatar(appearance = {}) {
   function setCharacter(name, options = {}) {
     const variantName = CHARACTER_PRESETS[name] ? name : 'steph';
     const preset = CHARACTER_PRESETS[variantName];
+    const previousCharacter = appearanceState.character;
     appearanceState.character = variantName;
     if (options.applyPreset) {
       setColors(preset.colors);
       setHair(preset.hair);
+    }
+    if (CHARACTER_MODEL_CONFIGS[variantName]) {
+      if (externalModelKey !== variantName) {
+        showExternalModel(variantName);
+      } else if (externalModelInstance) {
+        setBaseVisibility(false);
+        externalModelInstance.visible = true;
+      }
+    } else if (externalModelKey) {
+      hideExternalModel();
+    } else if (previousCharacter !== variantName) {
+      setBaseVisibility(true);
     }
   }
 

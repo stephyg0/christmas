@@ -108,8 +108,8 @@ export function updatePlayer(context, delta, elapsed) {
       0.15,
       1.1,
     );
-    cameraOrbit.yaw = THREE.MathUtils.lerp(cameraOrbit.yaw, yawTarget, 0.08);
-    cameraOrbit.pitch = THREE.MathUtils.lerp(cameraOrbit.pitch, pitchTarget, 0.08);
+    cameraOrbit.yaw = THREE.MathUtils.lerp(cameraOrbit.yaw, yawTarget, 0.45);
+    cameraOrbit.pitch = THREE.MathUtils.lerp(cameraOrbit.pitch, pitchTarget, 0.45);
   }
 
   if (movementState.boostTimer > 0) {
@@ -118,7 +118,7 @@ export function updatePlayer(context, delta, elapsed) {
       zoomState.target = 0;
     }
   }
-  zoomState.offset = THREE.MathUtils.lerp(zoomState.offset, zoomState.target, 0.12);
+  zoomState.offset = THREE.MathUtils.lerp(zoomState.offset, zoomState.target, 0.4);
 
   const forwardInput = (inputState.forward ? 1 : 0) - (inputState.backward ? 1 : 0);
   const strafeInput = (inputState.right ? 1 : 0) - (inputState.left ? 1 : 0);
@@ -144,7 +144,11 @@ export function updatePlayer(context, delta, elapsed) {
     localPlayer.group.position.add(facing.multiplyScalar(delta * moveSpeed));
     const angle = Math.atan2(moveVector.x, moveVector.z);
     localPlayer.group.rotation.y = angle;
-    sendAvatarUpdate(context);
+    const nowSync = performance.now();
+    if (!context.lastAvatarSync || nowSync - context.lastAvatarSync > 180) {
+      sendAvatarUpdate(context);
+      context.lastAvatarSync = nowSync;
+    }
     context.footstepCooldown -= delta;
     if (jumpState.grounded && context.footstepCooldown <= 0) {
       context.footstepCooldown = 0.35;
@@ -175,7 +179,7 @@ export function updatePlayer(context, delta, elapsed) {
     lerpFactor,
   );
 
-  cameraTarget.lerp(localPlayer.group.position, 0.08);
+  cameraTarget.lerp(localPlayer.group.position, 0.35);
   const offset = new THREE.Vector3(
     Math.sin(cameraOrbit.yaw) * Math.cos(cameraOrbit.pitch),
     Math.sin(cameraOrbit.pitch),
@@ -183,7 +187,7 @@ export function updatePlayer(context, delta, elapsed) {
   ).multiplyScalar(Math.max(6, cameraOrbit.distance + zoomState.offset));
 
   const desiredPosition = localPlayer.group.position.clone().add(offset);
-  camera.position.lerp(desiredPosition, 0.08);
+  camera.position.lerp(desiredPosition, 0.35);
   camera.lookAt(cameraTarget);
 }
 
@@ -264,4 +268,3 @@ export function updateFootprints(context, delta) {
     }
   }
 }
-

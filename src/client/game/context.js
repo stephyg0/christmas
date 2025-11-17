@@ -197,6 +197,7 @@ export function createGameContext() {
     lastStrandFullWarning: 0,
     footstepCooldown: 0,
     playerIsMoving: false,
+    lastAvatarSync: 0,
     highlightAccumulator: 0,
     pickupAccumulator: 0,
     collectibleAccumulator: 0,
