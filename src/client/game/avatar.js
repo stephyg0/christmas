@@ -403,15 +403,11 @@ export function createAvatar(appearance = {}) {
         animationState.externalBobPhase = 0;
         group.add(cloned);
 
+        // Remove character-attached light to keep the avatar unlit.
         if (externalFrontLight && externalFrontLight.parent) {
           externalFrontLight.parent.remove(externalFrontLight);
         }
-        const lightIntensity = config.lightIntensity || 1.8;
-        const lightColor = new THREE.Color(config.lightColor || 0xfff5da);
-        externalFrontLight = new THREE.PointLight(lightColor, lightIntensity, 7.5, 2);
-        externalFrontLight.position.set(0, (targetHeight || 4) * 0.55, 1.05);
-        externalFrontLight.castShadow = false;
-        cloned.add(externalFrontLight);
+        externalFrontLight = null;
 
       })
       .catch((error) => {
@@ -510,7 +506,7 @@ export function createLocalPlayer(context) {
   });
   localPlayer.group.position.set(0, 0, 0);
   scene.add(localPlayer.group);
-  scene.add(footstepGroup);
+  // Skip adding footstep visuals to remove the ring under the character.
   context.localPlayer = localPlayer;
   return localPlayer;
 }

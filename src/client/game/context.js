@@ -60,6 +60,8 @@ export function createGameContext() {
   const decorZones = [];
   const cabinAnchors = [];
   const anchorColliders = [];
+  const treeColliders = [];
+  const smokePuffs = [];
   const collectibles = [];
   const bulbPickups = [];
   const bulbSpawnBounds = { x: 110, z: 110 };
@@ -142,6 +144,7 @@ export function createGameContext() {
     boostTimer: 0,
     boostDuration: 3,
     boostMultiplier: 2.1,
+    slideVelocity: new THREE.Vector3(),
   };
   const zoomState = { offset: 0, target: 0 };
   const jumpState = { velocity: 0, offset: 0, grounded: true };
@@ -181,6 +184,9 @@ export function createGameContext() {
     decorZones,
     cabinAnchors,
     anchorColliders,
+    treeColliders,
+    smokePuffs,
+    treeColliders,
     collectibles,
     bulbPickups,
     bulbSpawnBounds,
@@ -208,6 +214,7 @@ export function createGameContext() {
     movementState,
     zoomState,
     jumpState,
+    rinkArea: { center: new THREE.Vector3(), radius: 0 },
 
     // Temp vectors
     tempVecA,

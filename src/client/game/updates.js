@@ -27,6 +27,7 @@ export function startAnimationLoop(context) {
     const delta = context.clock.getDelta();
     context.elapsedTime += delta;
     updateSnow(context, delta);
+    updateChimneySmoke(context, delta, context.elapsedTime);
     updateStringSegments(context, delta);
     animateAvatarWalks(context, delta);
     const worldActive =
@@ -141,26 +142,84 @@ export function updatePlayer(context, delta, elapsed) {
 
   const speedMultiplier = movementState.boostTimer > 0 ? movementState.boostMultiplier : 1;
   const moveSpeed = movementState.baseSpeed * speedMultiplier;
-  const isMoving = moveVector.lengthSq() > 0;
-  context.playerIsMoving = isMoving;
-  if (isMoving) {
-    const facing = moveVector.clone().normalize();
-    localPlayer.group.position.add(facing.multiplyScalar(delta * moveSpeed));
-    const angle = Math.atan2(moveVector.x, moveVector.z);
-    localPlayer.group.rotation.y = angle;
-    const nowSync = performance.now();
-    if (!context.lastAvatarSync || nowSync - context.lastAvatarSync > 180) {
-      sendAvatarUpdate(context);
-      context.lastAvatarSync = nowSync;
+  const rinkArea = context.rinkArea;
+  const onRink =
+    rinkArea &&
+    rinkArea.radius > 0 &&
+    localPlayer.group.position.distanceTo(rinkArea.center) <= rinkArea.radius + 0.4;
+  const iceVelocity = movementState.slideVelocity;
+  const playerRadius = 0.8;
+
+  function blocked(nextPosition) {
+    const colliders = context.treeColliders || [];
+    for (let i = 0; i < colliders.length; i += 1) {
+      const collider = colliders[i];
+      const dx = nextPosition.x - collider.position.x;
+      const dz = nextPosition.z - collider.position.z;
+      const combined = playerRadius + (collider.radius || 1.5);
+      if (dx * dx + dz * dz < combined * combined) {
+        return true;
+      }
     }
-    context.footstepCooldown -= delta;
-    if (jumpState.grounded && context.footstepCooldown <= 0) {
-      context.footstepCooldown = 0.35;
-      spawnFootprint(context, localPlayer.group.position, angle);
-      playFootstepSound();
+    return false;
+  }
+
+  if (onRink) {
+    const hasInput = moveVector.lengthSq() > 0;
+    if (hasInput) {
+      const accelDir = moveVector.clone().normalize();
+      iceVelocity.addScaledVector(accelDir, moveSpeed * 1.8 * delta);
     }
-  } else {
+    iceVelocity.multiplyScalar(0.985);
+    const iceStep = iceVelocity.clone().multiplyScalar(delta);
+    const nextPos = localPlayer.group.position.clone().add(iceStep);
+    if (!blocked(nextPos)) {
+      localPlayer.group.position.copy(nextPos);
+    } else {
+      iceVelocity.set(0, 0, 0);
+    }
+    const sliding = iceVelocity.lengthSq() > 0.002;
+    context.playerIsMoving = sliding;
+    if (sliding) {
+      const angle = Math.atan2(iceVelocity.x, iceVelocity.z);
+      localPlayer.group.rotation.y = angle;
+      const nowSync = performance.now();
+      if (!context.lastAvatarSync || nowSync - context.lastAvatarSync > 180) {
+        sendAvatarUpdate(context);
+        context.lastAvatarSync = nowSync;
+      }
+    }
+    // Soften footstep effects on ice.
     context.footstepCooldown = Math.max(0, context.footstepCooldown - delta * 0.5);
+  } else {
+    if (iceVelocity.lengthSq() > 0) {
+      iceVelocity.set(0, 0, 0);
+    }
+    const isMoving = moveVector.lengthSq() > 0;
+    context.playerIsMoving = isMoving;
+    if (isMoving) {
+      const facing = moveVector.clone().normalize();
+      const step = facing.multiplyScalar(delta * moveSpeed);
+      const nextPos = localPlayer.group.position.clone().add(step);
+      if (!blocked(nextPos)) {
+        localPlayer.group.position.copy(nextPos);
+      }
+      const angle = Math.atan2(moveVector.x, moveVector.z);
+      localPlayer.group.rotation.y = angle;
+      const nowSync = performance.now();
+      if (!context.lastAvatarSync || nowSync - context.lastAvatarSync > 180) {
+        sendAvatarUpdate(context);
+        context.lastAvatarSync = nowSync;
+      }
+      context.footstepCooldown -= delta;
+      if (jumpState.grounded && context.footstepCooldown <= 0) {
+        context.footstepCooldown = 0.35;
+        spawnFootprint(context, localPlayer.group.position, angle);
+        playFootstepSound();
+      }
+    } else {
+      context.footstepCooldown = Math.max(0, context.footstepCooldown - delta * 0.5);
+    }
   }
 
   if (!jumpState.grounded) {
@@ -173,10 +232,11 @@ export function updatePlayer(context, delta, elapsed) {
     }
   }
 
-  const baseHeight = -0.25;
-  const bob = isMoving ? Math.max(0, Math.sin(elapsed * 6) * 0.08) : 0;
+  const baseHeight = -0.35;
+  const isMovingNow = context.playerIsMoving;
+  const bob = isMovingNow ? Math.max(0, Math.sin(elapsed * 6) * 0.08) : 0;
   const targetBob = baseHeight + bob + jumpState.offset;
-  const lerpFactor = jumpState.grounded ? (isMoving ? 0.35 : 0.2) : 1;
+  const lerpFactor = jumpState.grounded ? (isMovingNow ? 0.35 : 0.2) : 1;
   localPlayer.group.position.y = THREE.MathUtils.lerp(
     localPlayer.group.position.y,
     targetBob,
@@ -193,6 +253,27 @@ export function updatePlayer(context, delta, elapsed) {
   const desiredPosition = localPlayer.group.position.clone().add(offset);
   camera.position.lerp(desiredPosition, 0.35);
   camera.lookAt(cameraTarget);
+}
+
+export function updateChimneySmoke(context, delta, elapsed) {
+  const entries = context.smokePuffs || [];
+  if (!entries.length) return;
+  const sway = elapsed * 0.6;
+  entries.forEach((entry) => {
+    entry.puffs.forEach((puff, idx) => {
+      const rise = ((elapsed * 0.25 + puff.offset + idx * 0.2) % 3) + puff.baseY;
+      const swayX = Math.sin(sway + puff.offset + idx) * 0.15;
+      const swayZ = Math.cos(sway * 0.8 + puff.offset * 1.2) * 0.12;
+      puff.mesh.position.x = swayX;
+      puff.mesh.position.z = swayZ;
+      puff.mesh.position.y = rise;
+      const opacity = 0.25 + ((3 - (rise - puff.baseY)) / 3) * 0.2;
+      if (puff.mesh.material) {
+        puff.mesh.material.opacity = Math.max(0.1, Math.min(0.4, opacity));
+      }
+      puff.mesh.scale.setScalar(0.9 + (rise - puff.baseY) * 0.08);
+    });
+  });
 }
 
 function animateAvatarWalks(context, delta) {
@@ -233,10 +314,23 @@ export function updateDecorZoneHighlights(context, delta) {
   const playerPos = localPlayer.group.position;
   decorZones.forEach((zone) => {
     const distance = zone.anchor.distanceTo(playerPos);
-    const targetGlow = distance < zone.activationRadius ? 0.85 : 0;
+    const targetGlow = distance < zone.activationRadius ? 0.6 : 0;
     zone.glow = THREE.MathUtils.lerp(zone.glow, targetGlow, delta * 5);
-    zone.mesh.material.opacity = zone.glow;
-    zone.mesh.scale.setScalar(1 + zone.glow * 0.1);
+    const core = zone.mesh;
+    const halo = core.userData?.halo;
+    const shouldShow = zone.glow > 0.02 || targetGlow > 0;
+    core.visible = shouldShow;
+    if (!shouldShow) return;
+    if (core.material) {
+      core.material.emissiveIntensity = 0.18 + zone.glow * 1.0;
+      core.material.opacity = zone.glow * 0.45;
+    }
+    if (halo?.material) {
+      halo.material.opacity = 0.1 + zone.glow * 0.45;
+      const haloScale = 0.9 + zone.glow * 0.6;
+      halo.scale.set(haloScale, haloScale, haloScale);
+    }
+    core.scale.setScalar(0.95 + zone.glow * 0.15);
   });
 }
 
@@ -259,26 +353,20 @@ export function updateCollectibles(context, delta, elapsed) {
 }
 
 function spawnFootprint(context, position, rotation) {
-  const { footstepGroup, footprints, MAX_FOOTPRINTS } = context;
-  const footprint = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.5, 0.9),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }),
-  );
-  footprint.rotation.x = -Math.PI / 2;
-  footprint.rotation.z = rotation;
-  footprint.position.set(position.x, 0.04, position.z);
-  footstepGroup.add(footprint);
-  footprints.push({ mesh: footprint, life: 4 });
-  if (footprints.length > MAX_FOOTPRINTS) {
-    const removed = footprints.shift();
-    if (removed) {
-      footstepGroup.remove(removed.mesh);
-    }
-  }
+  // Footprints disabled to remove the ground ring under the character.
+  return;
 }
 
 export function updateFootprints(context, delta) {
   const { footprints, footstepGroup } = context;
+  // If footprint visuals exist from earlier, clear them.
+  if (footstepGroup && footstepGroup.children.length) {
+    while (footstepGroup.children.length) {
+      const child = footstepGroup.children.pop();
+      child.geometry?.dispose?.();
+      child.material?.dispose?.();
+    }
+  }
   for (let i = footprints.length - 1; i >= 0; i -= 1) {
     const entry = footprints[i];
     entry.life -= delta;

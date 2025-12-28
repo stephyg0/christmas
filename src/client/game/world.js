@@ -24,7 +24,7 @@ export function initWorld(context) {
   const village = buildVillage(context);
   context.placementSurfaces.push(village.ground, ...village.cabins);
 
-  const snowSystem = createSnowSystem(180);
+  const snowSystem = createSnowSystem(80);
   context.scene.add(snowSystem.points);
   context.snowSystem = snowSystem;
 }
@@ -41,6 +41,8 @@ function buildVillage(context) {
     bulbSpawnBounds,
     cabinAnchors,
     anchorColliders,
+    treeColliders,
+    smokePuffs,
   } = context;
 
   decorZones.length = 0;
@@ -50,6 +52,8 @@ function buildVillage(context) {
   terrainMeshes.length = 0;
   cabinAnchors.length = 0;
   anchorColliders.length = 0;
+  treeColliders.length = 0;
+  smokePuffs.length = 0;
 
   const groundGeo = new THREE.PlaneGeometry(160, 160, 120, 120);
   const pos = groundGeo.attributes.position;
@@ -121,20 +125,14 @@ function buildVillage(context) {
         facing: Math.PI / 2,
         body: { width: 15, height: 5.3, depth: 9.6, color: 0xc58c69 },
         upperBody: { width: 12.6, height: 3.1, depth: 8.7, offsetY: 0.6, color: 0xe0a983 },
-        modules: [
-          { width: 6.5, height: 3.4, depth: 4.8, offsetZ: 4.7, color: 0xecc39f },
-          { width: 5.5, height: 3.2, depth: 4, offsetX: -7.5, color: 0xd9a173 },
-        ],
+        modules: [],
         roof: { color: 0x834735, height: 2.6, type: 'gable' },
         trimColor: 0xffead1,
         doorColor: 0x4f2d1e,
         porch: { depth: 3.2, widthFactor: 1.1, steps: true, rails: true },
         wreathColor: 0x2e7c5b,
         stringLightsColor: 0xfff2c0,
-        dormers: [
-          { width: 3, height: 2.2, depth: 2.4, offsetX: -2.4, offsetZ: 0.4 },
-          { width: 3, height: 2.2, depth: 2.4, offsetX: 2.4, offsetZ: -0.4 },
-        ],
+        dormers: [],
         chimney: true,
       },
     },
@@ -161,15 +159,12 @@ function buildVillage(context) {
         facing: Math.PI / 2,
         body: { width: 13.4, height: 5.1, depth: 9, color: 0xe4b59e },
         upperBody: { width: 12, height: 3.2, depth: 8, offsetY: 0.45, color: 0xf7d2c1 },
-        modules: [
-          { width: 6.2, height: 3.6, depth: 4.2, offsetZ: -4.4, color: 0xfddaca },
-          { width: 5.4, height: 3.2, depth: 4.6, offsetX: -6.2, color: 0xf2c0ad },
-        ],
+        modules: [],
         roof: { color: 0x9c4551, height: 2.7, type: 'gable' },
         trimColor: 0xfff0ea,
         doorColor: 0x6d2f2f,
         porch: { depth: 2.9, widthFactor: 1.06, steps: true, rails: true },
-        balcony: { width: 5.2, depth: 2.2, height: 4.5, railingColor: 0xfff0ea },
+        balcony: null,
         wreathColor: 0x408067,
         stringLightsColor: 0xffe3d4,
       },
@@ -201,17 +196,14 @@ function buildVillage(context) {
         facing: -Math.PI / 2,
         body: { width: 16.4, height: 5.5, depth: 10.2, color: 0xc9a27e },
         upperBody: { width: 14.5, height: 3.2, depth: 9.2, offsetY: 0.5, color: 0xe1bfa0 },
-        modules: [
-          { width: 7.4, height: 3.6, depth: 5, offsetZ: -4.8, color: 0xf0c29a },
-          { width: 6.4, height: 3.4, depth: 4.4, offsetX: 8.2, color: 0xd9af88 },
-        ],
+        modules: [],
         roof: { color: 0x5a2d24, height: 2.8, type: 'gable' },
         trimColor: 0xfff0da,
         doorColor: 0x3b1f16,
         porch: { depth: 3.1, widthFactor: 1.08, steps: true, rails: true },
         wreathColor: 0x32765a,
         stringLightsColor: 0xffd4ce,
-        dormers: [{ width: 2.8, height: 2, depth: 2.4, offsetX: -2.3, offsetZ: 0 }],
+        dormers: [],
       },
     },
     {
@@ -243,9 +235,17 @@ function buildVillage(context) {
     2;
 
   const walkwayAnchors = [];
+  const roofColorMap = ['#ff4136', '#ff8400', '#ffd300', '#2ecc40', '#0074d9'];
 
-  cabinConfigs.forEach((config) => {
-    const cabin = createCabin(config);
+  cabinConfigs.forEach((config, index) => {
+    const roofColor = roofColorMap[index % roofColorMap.length];
+    config.style.roof = {
+      ...(config.style.roof || {}),
+      color: roofColor,
+    };
+    config.style.stringLightsColor = roofColor;
+    config.style.chimney = true;
+    const cabin = createCabin(context, config);
     cabinSurfaces.push(...cabin.surfaces);
     scene.add(cabin.group);
     placementSurfaces.push(...cabin.surfaces);
@@ -266,26 +266,24 @@ function buildVillage(context) {
     }
   });
 
-  const pathSegments = createVillagePaths(walkwayAnchors);
+  const rinkRadius = 11;
+  const rinkCenter = new THREE.Vector3(laneCenterX, 0, 0);
+  const pathSegments = createVillagePaths(walkwayAnchors, { center: rinkCenter, radius: rinkRadius });
 
   const plazaTree = createGrandTree();
   plazaTree.position.set(laneCenterX, 0, -18);
   scene.add(plazaTree);
+  treeColliders.push({ position: plazaTree.position.clone(), radius: 3.2 });
 
-  const pond = createFrozenPond(11);
-  pond.position.set(laneCenterX - 12, -0.02, 18);
-  scene.add(pond);
-  terrainMeshes.push(pond);
-  const bridge = createWoodenBridge(16);
-  bridge.position.copy(pond.position);
-  bridge.position.y = 0.6;
-  bridge.rotation.y = Math.PI / 2;
-  scene.add(bridge);
-  terrainMeshes.push(bridge);
+  const rink = createSkatingRink(rinkRadius);
+  rink.group.position.set(rinkCenter.x, 0, rinkCenter.z);
+  scene.add(rink.group);
+  terrainMeshes.push(rink.surface);
+  context.rinkArea = { center: rinkCenter.clone(), radius: rinkRadius };
 
   const pathAreas = computePathBounds(pathSegments);
   const snowMounds = new THREE.Group();
-  for (let i = 0; i < 40; i += 1) {
+  for (let i = 0; i < 24; i += 1) {
     const radius = Math.random() * 2.2 + 1.6;
     const height = radius * (0.5 + Math.random() * 0.3);
     const mound = createSnowMound(radius, height, 0xffffff);
@@ -293,7 +291,10 @@ function buildVillage(context) {
     do {
       mound.position.set((Math.random() - 0.5) * 120, 0.02, (Math.random() - 0.5) * 120);
       attempts += 1;
-    } while (isOnPath(mound.position, pathAreas) && attempts < 10);
+    } while (
+      (isOnPath(mound.position, pathAreas) || isInsideRink(mound.position, rinkCenter, rinkRadius)) &&
+      attempts < 10
+    );
     snowMounds.add(mound);
     terrainMeshes.push(mound);
   }
@@ -305,10 +306,17 @@ function buildVillage(context) {
       const radius = Math.random() * 0.9 + 0.6;
       const height = radius * (0.7 + Math.random() * 0.4);
       const drift = createSnowMound(radius, height, 0xffffff);
-      drift.position.set(
-        config.position.x + (Math.random() - 0.5) * 5,
-        0.02,
-        config.position.z + (Math.random() - 0.5) * 5,
+      let attempts = 0;
+      do {
+        drift.position.set(
+          config.position.x + (Math.random() - 0.5) * 5,
+          0.02,
+          config.position.z + (Math.random() - 0.5) * 5,
+        );
+        attempts += 1;
+      } while (
+        isInsideRink(drift.position, rinkCenter, rinkRadius) &&
+        attempts < 8
       );
       cabinPiles.add(drift);
       terrainMeshes.push(drift);
@@ -319,14 +327,15 @@ function buildVillage(context) {
   const cabinBounds = cabinConfigs.map((config) => calculateCabinBounds(config));
   context.pickupSpawnContext = { pathAreas, cabinBounds, bulbSpawnBounds: { ...bulbSpawnBounds } };
 
-  for (let i = 0; i < 20; i += 1) {
-    const angle = (Math.PI * 2 * i) / 20;
-    const radius = 42 + Math.random() * 18;
+  for (let i = 0; i < 12; i += 1) {
+    const angle = (Math.PI * 2 * i) / 12;
+    const radius = 40 + Math.random() * 14;
     const position = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
     if (isNearCabin(position, cabinBounds)) continue;
     const tree = createTree();
     tree.position.copy(position);
     scene.add(tree);
+    treeColliders.push({ position: tree.position.clone(), radius: 2.2 });
   }
 
   return { ground, cabins: cabinSurfaces };
@@ -338,6 +347,36 @@ function buildVillage(context) {
     return new THREE.Vector3(config.position.x, 0.04, config.position.z).add(
       frontDir.multiplyScalar(doorOffset),
     );
+  }
+
+  function createAnchorMarker() {
+    const glowMap = getDecorationGlowTexture();
+    const coreMaterial = new THREE.MeshStandardMaterial({
+      color: 0xfff5dc,
+      emissive: 0xfff5dc,
+      emissiveIntensity: 0.25,
+      roughness: 0.3,
+      metalness: 0.05,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+    });
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.22, 18, 18), coreMaterial);
+    core.visible = false;
+    const halo = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: glowMap,
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.25,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    halo.scale.set(0.9, 0.9, 0.9);
+    core.add(halo);
+    core.userData.halo = halo;
+    return core;
   }
 
   function registerDecorZones(config) {
@@ -362,7 +401,7 @@ function buildVillage(context) {
       {
         normal: frontDir.clone().negate(),
         perp: rightDir,
-        offset: -depthOffset,
+        offset: depthOffset,
         length: config.style.body.width,
         name: 'back',
       },
@@ -376,15 +415,14 @@ function buildVillage(context) {
       {
         normal: rightDir.clone().negate(),
         perp: frontDir,
-        offset: -lateralOffset,
+        offset: lateralOffset,
         length: config.style.body.depth,
         name: 'left',
       },
     ];
 
-    const squareSize = 0.4;
-    const rows = 3;
-    const columns = Math.max(segments, 3);
+    const rows = 4;
+    const columns = Math.max(segments, 4);
 
     faceConfigs.forEach((face) => {
       for (let row = 0; row < rows; row += 1) {
@@ -396,32 +434,34 @@ function buildVillage(context) {
             .add(face.normal.clone().multiplyScalar(face.offset))
             .add(spanDir);
           const highlightPosition = anchor.clone().add(face.normal.clone().multiplyScalar(0.08));
-          const highlight = new THREE.Mesh(
-            new THREE.PlaneGeometry(squareSize, squareSize),
-            new THREE.MeshBasicMaterial({
-              color: 0xfff4d0,
-            transparent: true,
-            opacity: 0,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-          }),
-        );
-          highlight.position.copy(highlightPosition);
-          highlight.lookAt(highlightPosition.clone().add(face.normal));
-          highlight.userData.zoneId = `${config.id}-zone-${face.name}-${row}-${col}`;
-          scene.add(highlight);
+          const marker = createAnchorMarker();
+          marker.position.copy(highlightPosition);
+          marker.lookAt(highlightPosition.clone().add(face.normal));
+          marker.userData.zoneId = `${config.id}-zone-${face.name}-${row}-${col}`;
+          scene.add(marker);
           const zoneData = {
-            id: highlight.userData.zoneId,
+            id: marker.userData.zoneId,
             houseId: config.id,
-            mesh: highlight,
+            mesh: marker,
             anchor,
-          normal: face.normal.clone(),
-          glow: 0,
-          activationRadius: 9,
-        };
-          highlight.userData.zone = zoneData;
+            normal: face.normal.clone(),
+            glow: 0,
+            activationRadius: 14,
+            faceName: face.name,
+            anchorNumber: row * columns + col + 1,
+            houseColor: config.style.stringLightsColor || '#ffecc3',
+          };
+          console.log(
+            'decor zone created',
+            zoneData.id,
+            zoneData.houseId,
+            zoneData.faceName,
+            zoneData.anchorNumber,
+            zoneData.houseColor,
+          );
+          marker.userData.zone = zoneData;
           decorZones.push(zoneData);
-          placementSurfaces.push(highlight);
+          placementSurfaces.push(marker);
         }
       }
     });
@@ -531,41 +571,86 @@ function buildVillage(context) {
     }
   }
 
-  function createVillagePaths(anchors) {
+  function createVillagePaths(anchors, rinkArea) {
     if (!anchors.length) return [];
+    if (anchors.length === 1) return [];
+
     const segments = [];
-    const zValues = cabinConfigs.map((cfg) => cfg.position.z);
-    const frontXValues = anchors.map(({ front }) => front.x);
-    const mainX = (Math.min(...frontXValues) + Math.max(...frontXValues)) / 2;
+    const width = 3.6;
+    const usedPairs = new Set();
 
-    const mainStart = new THREE.Vector3(mainX, 0.035, Math.min(...zValues) - 20);
-    const mainEnd = new THREE.Vector3(mainX, 0.035, Math.max(...zValues) + 20);
-    const mainSegment = createPathSegment(mainStart, mainEnd, 5);
-    if (mainSegment) segments.push(mainSegment);
+    function pathKey(aIndex, bIndex) {
+      return aIndex < bIndex ? `${aIndex}-${bIndex}` : `${bIndex}-${aIndex}`;
+    }
 
-    const mainLine = {
-      x: mainX,
-      startZ: Math.min(mainStart.z, mainEnd.z),
-      endZ: Math.max(mainStart.z, mainEnd.z),
-    };
+    function pushOutOfRink(point, margin = width) {
+      if (!rinkArea) return point;
+      const { center, radius } = rinkArea;
+      const vec = point.clone().sub(center);
+      const dist = vec.length();
+      const safeRadius = radius + margin;
+      if (dist < safeRadius && dist > 0.0001) {
+        vec.normalize().multiplyScalar(safeRadius);
+        point.copy(center.clone().add(vec));
+      }
+      return point;
+    }
 
-    anchors.forEach(({ front }) => {
-      const walkwayEnd = computeWalkwayTarget(front, mainLine);
-      if (!walkwayEnd) return;
-      const direction = walkwayEnd.clone().sub(front).setY(0);
-      if (direction.lengthSq() < 0.001) return;
-      const mid = front.clone().addScaledVector(direction, 0.5);
+    function addPath(start, end, aIndex, bIndex) {
+      const key = pathKey(aIndex, bIndex);
+      if (usedPairs.has(key)) return;
+      const safeStart = pushOutOfRink(start.clone(), width * 0.8);
+      const safeEnd = pushOutOfRink(end.clone(), width * 0.8);
+      const direction = safeEnd.clone().sub(safeStart).setY(0);
+      if (direction.lengthSq() < 1) return;
+      const mid = safeStart.clone().addScaledVector(direction, 0.5);
       const perpendicular = new THREE.Vector3(-direction.z, 0, direction.x).normalize();
-      const curveStrength = Math.min(1.5, direction.length() * 0.25);
-      mid.add(perpendicular.multiplyScalar(curveStrength || 0.4));
-      const walkwayBounds = createCurvedWalkway(
-        [front.clone(), mid, walkwayEnd.clone()],
-        2.2,
-      );
+      const curveStrength = Math.min(4, direction.length() * 0.25) + Math.random() * 2;
+      mid.add(perpendicular.multiplyScalar((Math.random() - 0.5) * curveStrength));
+      pushOutOfRink(mid, width);
+      const walkwayBounds = createCurvedWalkway([safeStart, mid, safeEnd], width, rinkArea);
       if (walkwayBounds) {
+        usedPairs.add(key);
         segments.push(walkwayBounds);
       }
-    });
+    }
+
+    // Connect all houses via a simple spanning tree (Prim's algorithm).
+    const connected = [0];
+    const remaining = anchors.map((_, idx) => idx).slice(1);
+    while (remaining.length) {
+      let bestPair = null;
+      let bestDist = Infinity;
+      connected.forEach((cIdx) => {
+        const cPos = anchors[cIdx].front;
+        remaining.forEach((rIdx) => {
+          const rPos = anchors[rIdx].front;
+          const dist = cPos.distanceTo(rPos);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestPair = [cIdx, rIdx];
+          }
+        });
+      });
+      if (!bestPair) break;
+      const [aIdx, bIdx] = bestPair;
+      addPath(anchors[aIdx].front, anchors[bIdx].front, aIdx, bIdx);
+      remaining.splice(remaining.indexOf(bIdx), 1);
+      connected.push(bIdx);
+    }
+
+    // Add a few extra connections between random distinct houses for variety.
+    const extraLinks = Math.min(anchors.length, 3);
+    for (let i = 0; i < extraLinks; i += 1) {
+      const aIdx = Math.floor(Math.random() * anchors.length);
+      let bIdx = Math.floor(Math.random() * anchors.length);
+      if (anchors.length > 1) {
+        while (bIdx === aIdx) {
+          bIdx = Math.floor(Math.random() * anchors.length);
+        }
+      }
+      addPath(anchors[aIdx].front, anchors[bIdx].front, aIdx, bIdx);
+    }
 
     return segments;
   }
@@ -575,7 +660,7 @@ function buildVillage(context) {
     const length = dir.length();
     if (length < 0.01) return null;
     const center = start.clone().addScaledVector(dir, 0.5);
-    const segmentsX = Math.max(8, Math.floor(length / 1.5));
+    const segmentsX = Math.max(6, Math.min(40, Math.floor(length / 2.5)));
     const geometry = new THREE.PlaneGeometry(length, width, segmentsX, 6);
     const positions = geometry.attributes.position;
     for (let i = 0; i < positions.count; i += 1) {
@@ -616,9 +701,9 @@ function buildVillage(context) {
     };
   }
 
-  function createCurvedWalkway(points, width) {
+  function createCurvedWalkway(points, width, rinkArea) {
     const curve = new THREE.CatmullRomCurve3(points);
-    const divisions = Math.max(20, Math.floor(curve.getLength() / 1.2));
+    const divisions = Math.max(12, Math.min(48, Math.floor(curve.getLength() / 2)));
     const samples = curve.getPoints(divisions);
     const left = [];
     const right = [];
@@ -629,6 +714,17 @@ function buildVillage(context) {
 
     for (let i = 0; i < samples.length; i += 1) {
       const current = samples[i];
+      if (rinkArea) {
+        const { center, radius } = rinkArea;
+        const margin = width * 0.6;
+        const vec = current.clone().sub(center);
+        const dist = vec.length();
+        const safeRadius = radius + margin;
+        if (dist < safeRadius && dist > 0.0001) {
+          vec.normalize().multiplyScalar(safeRadius);
+          current.copy(center.clone().add(vec));
+        }
+      }
       const prev = samples[i - 1] || current;
       const next = samples[i + 1] || current;
       const tangent = next.clone().sub(prev).setY(0).normalize();
@@ -709,6 +805,12 @@ function buildVillage(context) {
     );
   }
 
+  function isInsideRink(position, center, radius) {
+    const dx = position.x - center.x;
+    const dz = position.z - center.z;
+    return dx * dx + dz * dz <= radius * radius;
+  }
+
   function calculateCabinBounds(config) {
     const style = config.style;
     let halfWidth = style.body.width / 2;
@@ -765,18 +867,19 @@ function buildVillage(context) {
   }
 }
 
-function createCabin(config) {
+function createCabin(context, config) {
   const { id, position, style } = config;
   const group = new THREE.Group();
   group.position.set(position.x, 0, position.z);
   group.rotation.y = style.facing || 0;
   const surfaces = [];
+  const woodColor = 0xb5835a;
 
   const bodyVolume = createLogVolume(
     style.body.width,
     style.body.height,
     style.body.depth,
-    style.body.color,
+    woodColor,
   );
   bodyVolume.group.position.y = style.body.height / 2;
   group.add(bodyVolume.group);
@@ -790,12 +893,12 @@ function createCabin(config) {
       upper.width,
       upper.height,
       upper.depth,
-      upper.color || style.body.color,
+      woodColor,
     );
-    upperVolume.group.position.y = style.body.height + upper.height / 2 + (upper.offsetY || 0);
+    upperVolume.group.position.y = style.body.height + upper.height / 2;
     group.add(upperVolume.group);
     surfaces.push(upperVolume.surface);
-    roofBaseHeight = upperVolume.group.position.y + upper.height / 2;
+    roofBaseHeight = upperVolume.group.position.y + upper.height / 2 + 0.25;
   }
 
   if (style.modules) {
@@ -804,7 +907,7 @@ function createCabin(config) {
         module.width,
         module.height,
         module.depth,
-        module.color || style.body.color,
+        woodColor,
       );
       moduleVolume.group.position.set(
         module.offsetX || 0,
@@ -822,14 +925,14 @@ function createCabin(config) {
     metalness: 0.05,
   });
 
-  const halfDepth = style.body.depth / 2 + 0.2;
+  const halfDepth = style.body.depth / 2 + 0.4;
   const gableShape = new THREE.Shape();
   gableShape.moveTo(-halfDepth, 0);
   gableShape.lineTo(halfDepth, 0);
   gableShape.lineTo(0, style.roof.height);
   gableShape.closePath();
 
-  const roofDepth = style.body.width + 0.2;
+  const roofDepth = style.body.width + 0.6;
   const extrudeSettings = { depth: roofDepth, bevelEnabled: false };
   const gableGeometry = new THREE.ExtrudeGeometry(gableShape, extrudeSettings);
   gableGeometry.translate(0, roofBaseHeight, -roofDepth / 2);
@@ -885,20 +988,54 @@ function createCabin(config) {
   }
 
   if (style.chimney) {
+    const roofPeak = roofBaseHeight + (style.roof?.height || 2.5);
+    const chimneyHeight = 2.8;
+    const chimneyTopOffset = 0.4;
+    const chimneyPosY = roofPeak + chimneyTopOffset - chimneyHeight / 2;
     const chimney = new THREE.Mesh(
-      new THREE.BoxGeometry(1.4, 3, 1.4),
+      new THREE.BoxGeometry(1.2, chimneyHeight, 1.2),
       new THREE.MeshStandardMaterial({ color: 0x4b2a1a, roughness: 0.7 }),
     );
-    chimney.position.set(style.body.width * 0.25, style.body.height + 2, -style.body.depth * 0.1);
+    chimney.position.set(style.body.width * 0.25, chimneyPosY, style.body.depth * 0.35);
     chimney.castShadow = true;
     group.add(chimney);
     surfaces.push(chimney);
+
+    // Simple smoke puffs
+    const smokeMaterial = new THREE.MeshBasicMaterial({
+      color: 0xf2f2f2,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+    });
+    const puffGroup = new THREE.Group();
+    const puffEntries = [];
+    for (let i = 0; i < 5; i += 1) {
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(0.4 + i * 0.1, 8, 8), smokeMaterial);
+      puff.position.set(
+        (Math.random() - 0.5) * 0.4,
+        1 + i * 0.65,
+        (Math.random() - 0.5) * 0.35,
+      );
+      puffGroup.add(puff);
+      puffEntries.push({ mesh: puff, baseY: puff.position.y, offset: Math.random() * Math.PI * 2 });
+    }
+    puffGroup.position.copy(chimney.position.clone().add(new THREE.Vector3(0, chimneyHeight / 2 + 0.2, 0)));
+    puffGroup.rotation.x = 0.2;
+    puffGroup.rotation.z = -0.1;
+    group.add(puffGroup);
+    if (context?.smokePuffs) {
+      context.smokePuffs.push({
+        base: puffGroup.position.clone(),
+        puffs: puffEntries,
+      });
+    }
   }
 
   const door = new THREE.Mesh(
     new THREE.BoxGeometry(1.8, 2.6, 0.25),
     new THREE.MeshStandardMaterial({
-      color: style.doorColor || 0x4d2718,
+      color: woodColor,
       roughness: 0.8,
     }),
   );
@@ -1100,6 +1237,34 @@ function createTree() {
     snowCap.position.y = cone.position.y + 0.7;
     group.add(snowCap);
   }
+
+  const colors = ['#ff9aa0', '#ffe48f', '#a2f2cb', '#93d0ff', '#f7b6ff', '#fff4c8'];
+  const bulbGeometry = new THREE.SphereGeometry(0.12, 12, 12);
+  const turns = 4;
+  const minY = 0.8;
+  const maxY = 2.2 + (levels - 1) * 1 + 0.8;
+  const baseRadius = 1.9;
+  const topRadius = Math.max(0.25, baseRadius * 0.2);
+  const bulbCount = 12;
+  for (let i = 0; i < bulbCount; i += 1) {
+    const f = i / Math.max(1, bulbCount - 1);
+    const y = minY + f * (maxY - minY);
+    const radius = THREE.MathUtils.lerp(baseRadius, topRadius, f);
+    const tightness = 0.6 + f * 0.6;
+    const angle = turns * Math.PI * 2 * f * tightness;
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    const colorHex = colors[i % colors.length];
+    const bulbMaterial = new THREE.MeshStandardMaterial({
+      color: colorHex,
+      emissive: colorHex,
+      emissiveIntensity: 0.8,
+    });
+    const bulb = new THREE.Mesh(bulbGeometry, bulbMaterial);
+    bulb.position.set(x, y, z);
+    group.add(bulb);
+  }
+
   return group;
 }
 
@@ -1147,7 +1312,80 @@ function createGrandTree() {
   glow.position.y = 8;
   group.add(glow);
 
+  const colors = ['#ff9aa0', '#ffe48f', '#a2f2cb', '#93d0ff', '#f7b6ff', '#fff4c8'];
+  const bulbGeometry = new THREE.SphereGeometry(0.16, 12, 12);
+  const turns = 5;
+  const minY = 1.6;
+  const maxY = 3.6 + (4 - 1) * 1.25 + 1.0;
+  const baseRadius = 3.5;
+  const topRadius = Math.max(0.4, baseRadius * 0.18);
+  const bulbCount = 12;
+  for (let i = 0; i < bulbCount; i += 1) {
+    const f = i / Math.max(1, bulbCount - 1);
+    const y = minY + f * (maxY - minY);
+    const radius = THREE.MathUtils.lerp(baseRadius, topRadius, f);
+    const tightness = 0.6 + f * 0.7;
+    const angle = turns * Math.PI * 2 * f * tightness;
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    const colorHex = colors[i % colors.length];
+    const bulbMaterial = new THREE.MeshStandardMaterial({
+      color: colorHex,
+      emissive: colorHex,
+      emissiveIntensity: 0.9,
+    });
+    const bulb = new THREE.Mesh(bulbGeometry, bulbMaterial);
+    bulb.position.set(x, y, z);
+    group.add(bulb);
+  }
+
   return group;
+}
+
+function createSkatingRink(radius = 11) {
+  const group = new THREE.Group();
+  const ice = new THREE.Mesh(
+    new THREE.CircleGeometry(radius, 48),
+    new THREE.MeshPhysicalMaterial({
+      color: 0xcce9ff,
+      roughness: 0.08,
+      metalness: 0.05,
+      clearcoat: 0.6,
+      clearcoatRoughness: 0.15,
+      transparent: true,
+      opacity: 0.95,
+    }),
+  );
+  ice.rotation.x = -Math.PI / 2;
+  ice.receiveShadow = true;
+  group.add(ice);
+
+  const fenceRadius = radius + 0.5;
+  const railMaterial = new THREE.MeshStandardMaterial({
+    color: 0xf4f6f8,
+    roughness: 0.5,
+    metalness: 0.1,
+  });
+    const rail = new THREE.Mesh(new THREE.TorusGeometry(fenceRadius, 0.08, 8, 48), railMaterial);
+    rail.position.y = 1;
+    group.add(rail);
+
+  const postMaterial = new THREE.MeshStandardMaterial({
+    color: 0xe2e6ea,
+    roughness: 0.6,
+  });
+  const postGeom = new THREE.CylinderGeometry(0.08, 0.08, 1, 8);
+  const postCount = 14;
+  for (let i = 0; i < postCount; i += 1) {
+    const angle = (i / postCount) * Math.PI * 2;
+    const x = Math.cos(angle) * fenceRadius;
+    const z = Math.sin(angle) * fenceRadius;
+    const post = new THREE.Mesh(postGeom, postMaterial);
+    post.position.set(x, 0.5, z);
+    group.add(post);
+  }
+
+  return { group, surface: ice };
 }
 
 function createFrozenPond(radius = 10) {
@@ -1467,8 +1705,18 @@ export function upsertDecoration(context, data) {
     decorationMeshes.set(data.id, mesh);
     scene.add(mesh);
   }
-  mesh.position.set(data.transform.position.x, data.transform.position.y, data.transform.position.z);
-  mesh.rotation.y = data.transform.rotation.y || 0;
+  const anchoredString =
+    data.type === 'string_lights' &&
+    Array.isArray(data.anchorPoints) &&
+    data.anchorPoints.length === 2;
+  if (anchoredString) {
+    // Anchor points are already in world space; avoid applying transforms that would move endpoints.
+    mesh.position.set(0, 0, 0);
+    mesh.rotation.set(0, 0, 0);
+  } else {
+    mesh.position.set(data.transform.position.x, data.transform.position.y, data.transform.position.z);
+    mesh.rotation.y = data.transform.rotation.y || 0;
+  }
   boostHouseGlow(context, data.cabinId);
 }
 

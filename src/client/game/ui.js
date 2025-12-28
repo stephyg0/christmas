@@ -300,6 +300,9 @@ export function setupInput(context) {
     ensureAudioContext();
     const zone = intersectDecorZone(context, event);
     if (zone) {
+      console.log('pointerdown zone', zone.id, zone.houseId);
+    }
+    if (zone) {
       if (context.stringPlacementState.awaitingSecondAnchor) {
         if (completeStringAttachment(context, zone)) {
           return;
@@ -501,6 +504,7 @@ function intersectDecorZone(context, event) {
   const hit = intersects[0];
   const zone = hit.object.userData.zone;
   if (zone && zone.glow > 0.2) {
+    console.log('intersect zone', zone.id, zone.houseId);
     return zone;
   }
   return null;

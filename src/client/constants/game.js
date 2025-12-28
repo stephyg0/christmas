@@ -6,16 +6,16 @@ export const STRAND_SOCKET_COUNT = 8;
 export const STRAND_SEGMENTS = 12;
 
 export const BULB_COLORS = ['#ff9aa0', '#ffe48f', '#a2f2cb', '#93d0ff', '#f7b6ff', '#fff4c8'];
-export const BULB_PICKUP_COUNT = 60;
+export const BULB_PICKUP_COUNT = 24;
 export const BULB_HOVER_OFFSET = 0.75;
 
 export const THROW_FULL_DURATION = 900;
 export const THROW_MIN_DURATION = 400;
 
-export const HIGHLIGHT_UPDATE_INTERVAL = 1 / 45;
-export const PICKUP_UPDATE_INTERVAL = 1 / 40;
-export const COLLECTIBLE_UPDATE_INTERVAL = 1 / 35;
-export const HOUSE_GLOW_INTERVAL = 1 / 30;
+export const HIGHLIGHT_UPDATE_INTERVAL = 1 / 25;
+export const PICKUP_UPDATE_INTERVAL = 1 / 25;
+export const COLLECTIBLE_UPDATE_INTERVAL = 1 / 25;
+export const HOUSE_GLOW_INTERVAL = 1 / 20;
 
 export const DROP_GRAVITY = 12;
 

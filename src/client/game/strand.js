@@ -58,7 +58,7 @@ const STRING_STAGES = {
   FINALIZED: 'FINALIZED',
 };
 
-const THROW_DURATION_MS = 780;
+const THROW_DURATION_MS = 500;
 
 export function initStrand(context) {
   if (strandBar) {
@@ -496,6 +496,9 @@ export function updateSparkEffects(context, delta) {
 
 export function beginThrowCharge(context, zone) {
   const { throwState, strandState, stringPlacementState } = context;
+  if (zone) {
+    console.log('beginThrowCharge zone', zone.id, zone.houseId);
+  }
   const isSecondAttachment =
     stringPlacementState.stage === STRING_STAGES.FIRST_ATTACHED ||
     stringPlacementState.awaitingSecondAnchor;
@@ -1118,6 +1121,13 @@ function beginPendingStringAttachment(context, zone, pattern) {
   const { stringPlacementState } = context;
   if (!zone) return;
   cancelStringAttachmentPreview(context);
+  console.log(
+    'edge 1 anchor',
+    zone.houseId,
+    zone.houseColor,
+    zone.faceName,
+    zone.anchorNumber,
+  );
   stringPlacementState.awaitingSecondAnchor = true;
   stringPlacementState.firstAnchor = zone;
   stringPlacementState.pattern = pattern && pattern.length ? [...pattern] : stringPlacementState.pattern;
@@ -1134,6 +1144,15 @@ function beginPendingStringAttachment(context, zone, pattern) {
 
 export function completeStringAttachment(context, zone) {
   const { stringPlacementState, coilState } = context;
+  if (zone) {
+    console.log(
+      'edge 2 anchor',
+      zone.houseId,
+      zone.houseColor,
+      zone.faceName,
+      zone.anchorNumber,
+    );
+  }
   const firstAnchor = stringPlacementState.firstAnchor;
   if (!zone || !firstAnchor) return false;
   if (zone.id === firstAnchor.id) {
@@ -1145,6 +1164,12 @@ export function completeStringAttachment(context, zone) {
   if (zone.houseId !== firstAnchor.houseId) {
     if (context.showToast) {
       context.showToast('Both ends must attach to the same cabin.');
+    }
+    return false;
+  }
+  if (zone.faceName !== firstAnchor.faceName) {
+    if (context.showToast) {
+      context.showToast('Pick a spot on the same wall to keep the strand outside.');
     }
     return false;
   }
@@ -1197,11 +1222,20 @@ export function placeDecoration(context, point, normal, options = {}) {
     color: chosenColor,
     glow: options.glow ?? 0.65,
     cabinId,
-    transform: {
-      position: transformPosition,
-      rotation: { x: 0, y: Math.atan2(facingNormal.x, facingNormal.z) || 0, z: 0 },
-      scale: 1,
-    },
+    transform: (() => {
+      // For string lights the anchor points are already in world space, so skip applying
+      // additional transforms that would offset the endpoints away from the numbered nodes.
+      const usesAnchors = typeId === 'string_lights' && options.anchorPoints?.length === 2;
+      return {
+        position: transformPosition,
+        rotation: {
+          x: 0,
+          y: usesAnchors ? 0 : Math.atan2(facingNormal.x, facingNormal.z) || 0,
+          z: 0,
+        },
+        scale: 1,
+      };
+    })(),
     colors: Array.isArray(options.colors) ? options.colors : undefined,
     anchorPoints: options.anchorPoints
       ? options.anchorPoints.map((pt) => ({
