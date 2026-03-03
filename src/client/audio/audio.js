@@ -1,5 +1,9 @@
 
+const MUSIC_SRC = 'audio/christmas-background-music-436117.mp3';
+
 let audioCtx;
+let backgroundAudio;
+let musicEnabled = false;
 
 export function ensureAudioContext() {
   if (audioCtx) return audioCtx;
@@ -7,6 +11,50 @@ export function ensureAudioContext() {
   if (!AudioCtor) return null;
   audioCtx = new AudioCtor();
   return audioCtx;
+}
+
+function getBackgroundAudio() {
+  if (backgroundAudio) return backgroundAudio;
+  const audio = new Audio(MUSIC_SRC);
+  audio.loop = true;
+  audio.volume = 0.34;
+  audio.preload = 'auto';
+  backgroundAudio = audio;
+  return backgroundAudio;
+}
+
+export function startBackgroundMusic() {
+  musicEnabled = true;
+  const audio = getBackgroundAudio();
+  if (!audio) return;
+  const ctx = ensureAudioContext();
+  if (ctx && ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
+  }
+  if (!audio.paused) return;
+  const playPromise = audio.play();
+  if (playPromise && playPromise.catch) {
+    playPromise.catch(() => {});
+  }
+}
+
+export function stopBackgroundMusic() {
+  musicEnabled = false;
+  if (!backgroundAudio) return;
+  backgroundAudio.pause();
+}
+
+export function toggleBackgroundMusic() {
+  if (musicEnabled && backgroundAudio && !backgroundAudio.paused) {
+    stopBackgroundMusic();
+    return false;
+  }
+  startBackgroundMusic();
+  return isMusicPlaying();
+}
+
+export function isMusicPlaying() {
+  return Boolean(musicEnabled && backgroundAudio && !backgroundAudio.paused);
 }
 
 export function playChime(pitches = [640, 880]) {

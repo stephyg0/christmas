@@ -103,18 +103,37 @@ function buildVillage(context) {
   snowSparkle.position.y = 0.05;
   scene.add(snowSparkle);
 
-  const ambient = new THREE.HemisphereLight(0xfff9e8, 0x0a1824, 0.9);
+  const ambient = new THREE.HemisphereLight(0xfff2d6, 0x1a0f0a, 1.2);
   scene.add(ambient);
 
-  const moon = new THREE.DirectionalLight(0xc7d5ff, 0.65);
+  const fillAmbient = new THREE.AmbientLight(0xffe6c7, 0.34);
+  scene.add(fillAmbient);
+
+  const moon = new THREE.DirectionalLight(0xf3d9b5, 0.85);
   moon.position.set(-10, 20, 10);
   moon.castShadow = true;
   moon.shadow.mapSize.set(2048, 2048);
   scene.add(moon);
 
-  const hearth = new THREE.PointLight(0xffb7c5, 1.4, 45);
-  hearth.position.set(0, 6, 0);
+  const rimLight = new THREE.DirectionalLight(0xfff1dd, 0.38);
+  rimLight.position.set(16, 14, -18);
+  scene.add(rimLight);
+
+  const hearth = new THREE.PointLight(0xffb7c5, 1.75, 58);
+  hearth.position.set(0, 6.7, 0);
   scene.add(hearth);
+
+  const villageGlow = new THREE.PointLight(0xffe2b8, 1.05, 125, 1.2);
+  villageGlow.position.set(0, 10, 0);
+  scene.add(villageGlow);
+
+  const eastGlow = new THREE.PointLight(0xffe8c8, 0.75, 90, 1.15);
+  eastGlow.position.set(38, 6.5, 0);
+  scene.add(eastGlow);
+
+  const westGlow = new THREE.PointLight(0xffe8c8, 0.75, 90, 1.15);
+  westGlow.position.set(-38, 6.5, 0);
+  scene.add(westGlow);
 
   const cabinSurfaces = [];
   const cabinConfigs = [
@@ -163,12 +182,13 @@ function buildVillage(context) {
         roof: { color: 0x9c4551, height: 2.7, type: 'gable' },
         trimColor: 0xfff0ea,
         doorColor: 0x6d2f2f,
-        porch: { depth: 2.9, widthFactor: 1.06, steps: true, rails: true },
-        balcony: null,
-        wreathColor: 0x408067,
-        stringLightsColor: 0xffe3d4,
-      },
+      porch: { depth: 2.9, widthFactor: 1.06, steps: true, rails: true },
+      balcony: null,
+      wreathColor: 0x408067,
+      stringLightsColor: 0xffe3d4,
+      chimney: true,
     },
+  },
     {
       id: 'cocoa-corner',
       position: { x: -36, z: 36 },
@@ -990,7 +1010,7 @@ function createCabin(context, config) {
   if (style.chimney) {
     const roofPeak = roofBaseHeight + (style.roof?.height || 2.5);
     const chimneyHeight = 2.8;
-    const chimneyTopOffset = 0.4;
+    const chimneyTopOffset = 0.65;
     const chimneyPosY = roofPeak + chimneyTopOffset - chimneyHeight / 2;
     const chimney = new THREE.Mesh(
       new THREE.BoxGeometry(1.2, chimneyHeight, 1.2),
@@ -1020,9 +1040,11 @@ function createCabin(context, config) {
       puffGroup.add(puff);
       puffEntries.push({ mesh: puff, baseY: puff.position.y, offset: Math.random() * Math.PI * 2 });
     }
-    puffGroup.position.copy(chimney.position.clone().add(new THREE.Vector3(0, chimneyHeight / 2 + 0.2, 0)));
-    puffGroup.rotation.x = 0.2;
-    puffGroup.rotation.z = -0.1;
+    puffGroup.position.copy(
+      chimney.position.clone().add(new THREE.Vector3(0, chimneyHeight / 2 - 0.25, 0)),
+    );
+    puffGroup.rotation.x = 0;
+    puffGroup.rotation.z = 0;
     group.add(puffGroup);
     if (context?.smokePuffs) {
       context.smokePuffs.push({
@@ -1366,9 +1388,12 @@ function createSkatingRink(radius = 11) {
     roughness: 0.5,
     metalness: 0.1,
   });
-    const rail = new THREE.Mesh(new THREE.TorusGeometry(fenceRadius, 0.08, 8, 48), railMaterial);
-    rail.position.y = 1;
-    group.add(rail);
+  const railTop = new THREE.Mesh(new THREE.TorusGeometry(fenceRadius, 0.08, 8, 48), railMaterial);
+  railTop.position.y = 1;
+  group.add(railTop);
+  const railMid = new THREE.Mesh(new THREE.TorusGeometry(fenceRadius, 0.06, 8, 48), railMaterial);
+  railMid.position.y = 0.55;
+  group.add(railMid);
 
   const postMaterial = new THREE.MeshStandardMaterial({
     color: 0xe2e6ea,
@@ -1376,6 +1401,7 @@ function createSkatingRink(radius = 11) {
   });
   const postGeom = new THREE.CylinderGeometry(0.08, 0.08, 1, 8);
   const postCount = 14;
+  const postPositions = [];
   for (let i = 0; i < postCount; i += 1) {
     const angle = (i / postCount) * Math.PI * 2;
     const x = Math.cos(angle) * fenceRadius;
@@ -1383,6 +1409,24 @@ function createSkatingRink(radius = 11) {
     const post = new THREE.Mesh(postGeom, postMaterial);
     post.position.set(x, 0.5, z);
     group.add(post);
+    postPositions.push(post.position.clone());
+  }
+
+  // Connect posts with horizontal bars.
+  const barGeom = new THREE.CylinderGeometry(0.05, 0.05, 1, 6);
+  for (let i = 0; i < postPositions.length; i += 1) {
+    const nextIndex = (i + 1) % postPositions.length;
+    const start = postPositions[i];
+    const end = postPositions[nextIndex];
+    const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+    const dir = new THREE.Vector3().subVectors(end, start);
+    const length = dir.length();
+    const bar = new THREE.Mesh(barGeom, railMaterial.clone());
+    bar.scale.set(1, length, 1);
+    bar.position.set(midpoint.x, midpoint.y, midpoint.z);
+    bar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+    bar.position.y = 0.75;
+    group.add(bar);
   }
 
   return { group, surface: ice };

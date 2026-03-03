@@ -19,7 +19,7 @@ import {
   updateSparkEffects,
   updateStringSegments,
 } from './strand.js';
-import { updateHouseGlow } from './world.js';
+import { updateHouseGlow, sampleTerrainHeight } from './world.js';
 
 export function startAnimationLoop(context) {
   function frame() {
@@ -353,20 +353,12 @@ export function updateCollectibles(context, delta, elapsed) {
 }
 
 function spawnFootprint(context, position, rotation) {
-  // Footprints disabled to remove the ground ring under the character.
+  // Footprints disabled.
   return;
 }
 
 export function updateFootprints(context, delta) {
   const { footprints, footstepGroup } = context;
-  // If footprint visuals exist from earlier, clear them.
-  if (footstepGroup && footstepGroup.children.length) {
-    while (footstepGroup.children.length) {
-      const child = footstepGroup.children.pop();
-      child.geometry?.dispose?.();
-      child.material?.dispose?.();
-    }
-  }
   for (let i = footprints.length - 1; i >= 0; i -= 1) {
     const entry = footprints[i];
     entry.life -= delta;

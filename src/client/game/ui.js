@@ -1,4 +1,10 @@
-import { ensureAudioContext, playChime } from '../audio/audio.js';
+import {
+  ensureAudioContext,
+  playChime,
+  startBackgroundMusic,
+  toggleBackgroundMusic,
+  isMusicPlaying,
+} from '../audio/audio.js';
 import {
   startButton,
   joinButton,
@@ -30,6 +36,9 @@ import {
   joinToggleBtn,
   joinCard,
   hudCollapseBtn,
+  musicToggleBtn,
+  forrestToggleBtn,
+  stephToggleBtn,
 } from '../components/domElements.js';
 import { selectCharacter, sendAvatarUpdate, hydrateWorld } from './avatar.js';
 import {
@@ -47,6 +56,12 @@ export function randomSnowyName() {
   const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
   const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
   return `${prefix}${suffix}`;
+}
+
+function syncMusicToggle() {
+  if (musicToggleBtn) {
+    musicToggleBtn.classList.toggle('active', isMusicPlaying());
+  }
 }
 
 export function showToast(context, message) {
@@ -78,6 +93,8 @@ export function setupUI(context) {
   startButton.addEventListener('click', () => {
     uiState.awaitingStoryIntro = true;
     uiState.storyComplete = false;
+    startBackgroundMusic();
+    syncMusicToggle();
     startButton.disabled = true;
     startButton.textContent = 'Starting…';
     context.network.ensureConnection();
@@ -98,6 +115,8 @@ export function setupUI(context) {
       context.showToast('Enter a 6-letter invite code.');
       return;
     }
+    startBackgroundMusic();
+    syncMusicToggle();
     uiState.awaitingStoryIntro = false;
     uiState.storyComplete = true;
     context.network.ensureConnection();
@@ -115,6 +134,8 @@ export function setupUI(context) {
 
   if (introContinueBtn) {
     introContinueBtn.addEventListener('click', () => {
+      startBackgroundMusic();
+      syncMusicToggle();
       completeStoryIntro(context);
     });
   }
@@ -189,6 +210,22 @@ export function setupUI(context) {
   if (dropButton) {
     dropButton.addEventListener('click', () => dropStrandBulb(context));
   }
+  if (musicToggleBtn) {
+    musicToggleBtn.addEventListener('click', () => {
+      const playing = toggleBackgroundMusic();
+      musicToggleBtn.classList.toggle('active', playing);
+    });
+  }
+  if (forrestToggleBtn) {
+    forrestToggleBtn.addEventListener('click', () => {
+      selectCharacter(context, 'forrest', { applyPreset: true });
+    });
+  }
+  if (stephToggleBtn) {
+    stephToggleBtn.addEventListener('click', () => {
+      selectCharacter(context, 'steph', { applyPreset: true });
+    });
+  }
 
   storyCharacterButtons.forEach((button) => {
     button.addEventListener('click', () => {
@@ -210,6 +247,8 @@ export function setupUI(context) {
     });
   });
   refreshRadialMenuLocks(context);
+  syncMusicToggle();
+  selectCharacter(context, localState.character, { applyPreset: false, silent: true });
 }
 
 export function setupInput(context) {
@@ -298,6 +337,8 @@ export function setupInput(context) {
   renderer.domElement.addEventListener('pointerdown', (event) => {
     closeRadialMenu(context);
     ensureAudioContext();
+    startBackgroundMusic();
+    syncMusicToggle();
     const zone = intersectDecorZone(context, event);
     if (zone) {
       console.log('pointerdown zone', zone.id, zone.houseId);

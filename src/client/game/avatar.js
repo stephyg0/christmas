@@ -9,6 +9,8 @@ import {
   hairSelect,
   storyCharacterButtons,
   modalCharacterButtons,
+  forrestToggleBtn,
+  stephToggleBtn,
 } from '../components/domElements.js';
 import { upsertDecoration } from './world.js';
 
@@ -17,6 +19,8 @@ const SkeletonUtils =
   SkeletonUtilsModule.SkeletonUtils ||
   SkeletonUtilsModule.default ||
   SkeletonUtilsModule;
+const tempBox = new THREE.Box3();
+const tempSize = new THREE.Vector3();
 
 const BOOT_BASE_HEIGHT = 0.35;
 const WALK_IDLE_SPEED = 1.2;
@@ -365,8 +369,32 @@ export function createAvatar(appearance = {}) {
           group.remove(externalModelInstance);
         }
         const cloned = SkeletonUtils.clone(sceneTemplate);
+        const toRemove = [];
         cloned.traverse((child) => {
           if (child.isMesh) {
+            const name = (child.name || '').toLowerCase();
+            let isFlatBase = false;
+            if (child.geometry) {
+              tempBox.setFromObject(child);
+              tempBox.getSize(tempSize);
+              const height = tempSize.y;
+              const maxY = tempBox.max.y;
+              const minY = tempBox.min.y;
+              if ((height < 0.12 && Math.max(tempSize.x, tempSize.z) > 0.35) || (height < 0.22 && maxY < 0.45)) {
+                isFlatBase = true;
+              }
+            }
+            if (
+              name.includes('shadow') ||
+              name.includes('ring') ||
+              child.geometry?.type === 'CircleGeometry' ||
+              child.geometry?.type === 'RingGeometry' ||
+              child.geometry?.type === 'PlaneGeometry' ||
+              isFlatBase
+            ) {
+              toRemove.push(child);
+              return;
+            }
             child.castShadow = true;
             child.receiveShadow = true;
             if (child.material) {
@@ -384,6 +412,13 @@ export function createAvatar(appearance = {}) {
               }
             }
           }
+        });
+        toRemove.forEach((node) => {
+          if (node.parent) {
+            node.parent.remove(node);
+          }
+          node.geometry?.dispose?.();
+          if (node.material?.dispose) node.material.dispose();
         });
         const bounds = new THREE.Box3().setFromObject(cloned);
         const center = bounds.getCenter(new THREE.Vector3());
@@ -506,7 +541,9 @@ export function createLocalPlayer(context) {
   });
   localPlayer.group.position.set(0, 0, 0);
   scene.add(localPlayer.group);
-  // Skip adding footstep visuals to remove the ring under the character.
+  if (footstepGroup && !footstepGroup.parent) {
+    scene.add(footstepGroup);
+  }
   context.localPlayer = localPlayer;
   return localPlayer;
 }
@@ -542,6 +579,7 @@ function updateCharacterButtons(active) {
   };
   updateGroup(storyCharacterButtons);
   updateGroup(modalCharacterButtons);
+  updateGroup([forrestToggleBtn, stephToggleBtn]);
 }
 
 export function sendAvatarUpdate(context) {

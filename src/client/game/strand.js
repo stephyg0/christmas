@@ -200,13 +200,11 @@ function initLightStrand(context) {
   strandState.socketMaterials = socketMaterials;
   strandState.socketAuras = socketAuras;
   strandState.socketLights = socketLights;
-  const coilVisual = createCoilVisual(context, STRAND_SOCKET_COUNT);
-  localPlayer.group.add(coilVisual.group);
-  context.coilState.mesh = coilVisual.group;
-  context.coilState.lightNodes = coilVisual.nodes;
-  context.coilState.lightsTotal = coilVisual.nodes.length;
-  context.coilState.lightsRemaining = coilVisual.nodes.length;
-  updateCoilVisual(context.coilState);
+  // Hide the old coil visual so nothing sits under the character.
+  context.coilState.mesh = null;
+  context.coilState.lightNodes = [];
+  context.coilState.lightsTotal = 0;
+  context.coilState.lightsRemaining = 0;
 }
 
 function initStrandUI(context) {

@@ -39,3 +39,6 @@ export const joinCard = document.getElementById('join-card');
 export const hudCollapseBtn = document.getElementById('hud-collapse');
 export const strandSocketsEl = document.getElementById('strand-sockets');
 export const dropButton = document.getElementById('drop-bulb');
+export const musicToggleBtn = document.getElementById('music-toggle');
+export const forrestToggleBtn = document.getElementById('forrest-toggle');
+export const stephToggleBtn = document.getElementById('steph-toggle');

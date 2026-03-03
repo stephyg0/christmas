@@ -23,7 +23,7 @@ export function createGameContext() {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b1d2e);
-  scene.fog = new THREE.FogExp2(0x0a1624, 0.018);
+  scene.fog = new THREE.FogExp2(0x0a1624, 0.017);
 
   const camera = new THREE.PerspectiveCamera(
     60,
@@ -215,6 +215,7 @@ export function createGameContext() {
     zoomState,
     jumpState,
     rinkArea: { center: new THREE.Vector3(), radius: 0 },
+    nextFootLeft: true,
 
     // Temp vectors
     tempVecA,
